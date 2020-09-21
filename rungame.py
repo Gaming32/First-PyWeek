@@ -206,7 +206,6 @@ else:
     #         background_sprites.add(tile)
     for x in range(map_size[0]):
         for y in range(map_size[1]):
-            print(y)
             rect = Rect(x * 16, y * 16, 16, 16)
             bg_image.blit(random.choice(sand), rect)
     for x in range(map_size[0]):
@@ -412,17 +411,13 @@ while running:
         elif event.type in MOUSE_EVENT_TYPES:
             mouse_events.append(event)
 
-
     #2 Update
     # background_sprites.update()
     foreground_sprites.update()
     camera.update(player)
 
-
     #3 Draw/render
     screen.fill(BLACK)
-
-    
 
     # background_sprites.draw(screen)
     background.draw(screen)
