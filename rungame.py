@@ -29,6 +29,10 @@ FPS = 0
 SPEED = 3
 CAMERA_SPEED = 1
 
+PLAYER_SLICE = (26, 36)
+PLAYER_ANIMATION_COUNT = 3
+PLAYER_ANIMATION_MIN = 350
+
 # Define Colors 
 WHITE = (255, 255, 255)
 BLACK = (0, 0, 0)
@@ -69,6 +73,19 @@ def rot_center(image, angle):
     new_rect = rotated_image.get_rect(center = center)
 
     return rotated_image, new_rect
+
+
+def get_player_animation_rect(x, y):
+    return Rect((PLAYER_SLICE[0] * x, PLAYER_SLICE[1] * y), PLAYER_SLICE)
+
+
+def get_player_animation_frame(surface: Surface, direction):
+    return surface.subsurface(
+        get_player_animation_rect(
+            (pygame.time.get_ticks() // PLAYER_ANIMATION_MIN) % PLAYER_ANIMATION_COUNT + 3,
+            direction
+        )
+    )
 
 
 class Camera:
@@ -155,19 +172,33 @@ class PositionBasedSprite(pygame.sprite.Sprite):
 
 
 class Player(PositionBasedSprite):
+    player_raw_image = pygame.image.load('player.png').convert_alpha()
     base_image = pygame.image.load('smile.png').convert_alpha()
 
     def __init__(self):
         super().__init__(1)
+        self.base_image = get_player_animation_frame(self.player_raw_image, 0)
+        self.animation_time_passed = 0
 
     def update(self, *args, **kwargs):
-        mouse_pos = pygame.mouse.get_pos()
-        mouse_rel = Vector2(mouse_pos) - Vector2(self.rect.center)
-        mouse_direction = -mouse_rel.as_polar()[1] - 90
-        self.rotation = mouse_direction
+        # mouse_pos = pygame.mouse.get_pos()
+        # mouse_rel = Vector2(mouse_pos) - Vector2(self.rect.center)
+        # mouse_direction = -mouse_rel.as_polar()[1] - 90
+        # self.rotation = mouse_direction
         if movement:
             self.position += movement.normalize() * delta_time * SPEED
             self.position.update(clamp(self.position.x, -32, 32), clamp(self.position.y, -2, 24))
+            general_direction = (math.degrees(math.atan2(movement.y, movement.x)) + 45) // 45
+            if general_direction == -1:
+                animation_direction = 0
+            elif general_direction == 5:
+                animation_direction = 1
+            elif general_direction == 3:
+                animation_direction = 3
+            else:
+                animation_direction = 2
+            self.base_image = get_player_animation_frame(self.player_raw_image,
+                                                         animation_direction)
 
 player = Player()
 # player.position += (16, 12)
