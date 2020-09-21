@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import os
 import random
 import math
 from typing import Union
@@ -22,8 +23,8 @@ def size_from_ratio(w, h, r):
 WIDTH = 640
 HEIGHT = 480
 RATIO = 4/3
-FPS = 60
-# FPS = 0
+# FPS = 60
+FPS = 0
 SPEED = 3
 CAMERA_SPEED = 1
 
@@ -45,7 +46,6 @@ growness = 50
 scale = scale_direct * growness
 offset = Vector2(640/2/growness, 480/2/growness)
 print('Scale:', scale_direct, scale)
-pygame.display.set_caption("<Your game>")
 clock = pygame.time.Clock()     ## For syncing the FPS
 
 
@@ -84,7 +84,7 @@ camera = Camera()
 
 
 def floor_vector(vec: Union[Vector2, Vector3]):
-    return type(vec)([math.floor(part) for part in vec])
+    return type(vec)([int(part) for part in vec])
 
 
 class PositionBasedSprite(pygame.sprite.Sprite):
@@ -125,7 +125,7 @@ class PositionBasedSprite(pygame.sprite.Sprite):
         base_vector = Vector2(self.position)
         base_vector += offset
         base_vector -= camera.position
-        if (
+        if self.size <= 1 and (
                base_vector.x < -1
             or base_vector.y < -1
             or base_vector.x > growness * 4 / 3 + 1
@@ -148,8 +148,8 @@ class PositionBasedSprite(pygame.sprite.Sprite):
         base_vector = floor_vector(base_vector * scale)
         base_vector.y = HEIGHT * scale_direct - base_vector.y
         rect = Rect(self._get_image()[1])
-        rect.x += int(base_vector[0])
-        rect.y += int(base_vector[1])
+        rect.x += round(base_vector[0])
+        rect.y += round(base_vector[1])
         return rect
 
 
@@ -166,27 +166,103 @@ class Player(PositionBasedSprite):
         self.rotation = mouse_direction
         if movement:
             self.position += movement.normalize() * delta_time * SPEED
-            self.position.update(clamp(self.position.x, -32, 32), clamp(self.position.y, -24, 24))
+            self.position.update(clamp(self.position.x, -32, 32), clamp(self.position.y, -2, 24))
 
 player = Player()
 # player.position += (16, 12)
 
 
 class Tile(PositionBasedSprite):
-    base_image = pygame.image.load('ground.png')
+    base_image = pygame.image.load('sand.png')
+    def __init__(self, size=None):
+        self.base_image = pygame.transform.rotate(self.base_image, 90*random.randrange(4))
+        super().__init__(size)
 
 
-background_sprites = pygame.sprite.Group()
-tiles = []
-for x in range(-32, 33):
-    tiles.append([])
-    for y in range(-24, 25):
-        tile = Tile(1)
-        tile.position.update(Vector2(x, y))
-        tiles[-1].append(tile)
-        background_sprites.add(tile)
+map_point = (-40, 32)
+map_size = (80, 56)
+water_size = 8
+total_size = (map_size[0], map_size[1] + water_size)
+
+if os.path.exists('bigmap.png'):
+    bg_image = pygame.image.load('bigmap.png')
+else:
+    sand_base = pygame.image.load('sand.png')
+    water_base = pygame.image.load('water.png')
+    bg_image = Surface((total_size[0] * 16, total_size[1] * 16))
+    sand = []
+    water = []
+    for r in range(4):
+        sand.append(pygame.transform.rotate(sand_base, 90 * r))
+        water.append(pygame.transform.rotate(water_base, 90 * r))
+    # tiles = []
+    # for x in range(-32, 33):
+    #     tiles.append([])
+    #     for y in range(-24, 25):
+    #         tile = Tile(1)
+    #         tile.position.update(Vector2(x, y))
+    #         tiles[-1].append(tile)
+    #         background_sprites.add(tile)
+    for x in range(map_size[0]):
+        for y in range(map_size[1]):
+            print(y)
+            rect = Rect(x * 16, y * 16, 16, 16)
+            bg_image.blit(random.choice(sand), rect)
+    for x in range(map_size[0]):
+        for y in range(water_size):
+            rect = Rect(x * 16, (y + map_size[1]) * 16, 16, 16)
+            bg_image.blit(random.choice(water), rect)
+    pygame.image.save(bg_image, 'bigmap.png')
 
 
+class Background(PositionBasedSprite):
+    base_image = bg_image
+    position = Vector2(map_point)
+
+
+class StandalonePositionBasedRenderer:
+    def __init__(self, surface: Surface, position: Vector2):
+        self.surface = surface
+        # self.resize(scale)
+        self.position = position
+        self._last_position = [None, None]
+
+    def resize(self, scale):
+        self.surface = pygame.transform.scale(self.surface,
+            [round(x * scale) for x in self.surface.get_size()])
+
+    def _pos_on_screen(self):
+        if self._last_position[0] == (self.position, camera.position):
+            return self._last_position[1]
+        self._last_position[0] = (Vector2(self.position), Vector2(camera.position))
+        base_vector = Vector2(self.position)
+        base_vector += offset
+        base_vector -= camera.position
+        self._last_position[1] = base_vector
+        return base_vector
+
+    def _pos_in_screen(self):
+        rel_pos = self._pos_on_screen()
+        base_vector = floor_vector(rel_pos * scale)
+        base_vector.y = HEIGHT * scale_direct - base_vector.y
+        return base_vector * -1
+
+    def draw(self, on: Surface):
+        base_vector = self._pos_in_screen()
+        # base_vector = floor_vector(base_vector * scale)
+        # base_vector.y = HEIGHT * scale_direct - base_vector.y
+        subrect = Rect(base_vector / 4, (160, 120))
+        if self.surface.get_rect().colliderect(subrect):
+            surf = self.surface.subsurface(subrect)
+            # print(tuple(int(x) for x in Vector2(size) * 16))
+            surf = pygame.transform.scale(surf, size)
+            rect = Rect((0, 0), size)
+            on.blit(surf, rect)
+
+
+# background_sprites = pygame.sprite.Group()
+# background_sprites.add(Background(max(total_size)))
+background = StandalonePositionBasedRenderer(bg_image, map_point)
 foreground_sprites.add(player)
 
 
@@ -310,7 +386,7 @@ while running:
 
 
     #2 Update
-    background_sprites.update()
+    # background_sprites.update()
     foreground_sprites.update()
     camera.update(player)
 
@@ -320,7 +396,8 @@ while running:
 
     
 
-    background_sprites.draw(screen)
+    # background_sprites.draw(screen)
+    background.draw(screen)
     foreground_sprites.draw(screen)
     ########################
 
