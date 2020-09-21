@@ -1,2 +1,5 @@
-
+__pycache__
 bigmap.png
+problems.txt
+build
+*.c

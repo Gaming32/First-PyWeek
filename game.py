@@ -3,6 +3,7 @@
 import os
 import random
 import math
+from sys import stdout
 from typing import Callable, Union
 
 import pygame
@@ -291,6 +292,10 @@ class StandalonePositionBasedRenderer:
             on.blit(surf, rect)
 
 
+class GameStartingItem(PositionBasedSprite):
+    pass
+
+
 # background_sprites = pygame.sprite.Group()
 # background_sprites.add(Background(max(total_size)))
 background = StandalonePositionBasedRenderer(bg_image, map_point)
@@ -413,7 +418,7 @@ while running:
     #     print('FPS:', 1/delta_time, ' '*24, end='\r')
     # else:
     #     print('FPS:', '>1000', ' '*24, end='\r')
-    print('FPS:', int(smoothfps), ' '*24, end='\r')
+    stdout.write(f'FPS: {int(smoothfps)}{" " * 24}\r')
     
     mouse_events.clear()
     #1 Process input/events
