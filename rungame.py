@@ -3,11 +3,12 @@
 import os
 import random
 import math
-from typing import Union
+from typing import Callable, Union
 
 import pygame
 from pygame import Surface, time
 from pygame.display import Info
+from pygame.event import Event
 from pygame.locals import *
 from pygame.math import *
 
@@ -281,11 +282,14 @@ class UIButton(pygame.sprite.Sprite):
     bgmiddle = pygame.image.load('button-bg-middle.png').convert_alpha()
     bgright = pygame.image.load('button-bg-right.png').convert_alpha()
 
-    def __init__(self, content: Surface, rect: Rect, include_background=True):
+    def __init__(self, content: Surface, rect: Rect, commands: Callable[[Event], None] =None, include_background=True):
+        if commands is None:
+            commands = []
         super().__init__()
         self.background = Surface(rect.size, pygame.SRCALPHA, 32).convert_alpha()
         self.content = content
         self.rect = rect
+        self.commands = commands
         self.include_background = include_background
         self.background_elements = [
             pygame.transform.scale(element, (11, rect.height))
@@ -304,8 +308,12 @@ class UIButton(pygame.sprite.Sprite):
             array[array == LIGHT_BLUE] = DARK_BLUE
             array[array == DARK_BLUE] = LIGHT_BLUE
             del array
+    
+    def _call(self, event):
+        for command in self.commands:
+            command(event)
 
-    def update(self, *args, **kwargs):
+    def update(self, mouse_events):
         if self.include_background:
             self.background.fill((0, 0, 0, 0))
             if self.rect.collidepoint(pygame.mouse.get_pos()):
@@ -325,6 +333,14 @@ class UIButton(pygame.sprite.Sprite):
                 elements[2],
                 Rect(self.rect.width - 11, 0, 11, self.rect.height)
             )
+        for event in mouse_events:
+            if (
+                event.type == MOUSEBUTTONUP
+                and event.button == 1
+                and self.rect.collidepoint(event.pos)
+            ):
+                print(event)
+                self._call(event)
 
     @property
     def image(self):
@@ -332,11 +348,18 @@ class UIButton(pygame.sprite.Sprite):
         result.blit(self.content, Rect((0, 0), self.rect.size))
         return result
 
+
+def on_quit_button(event):
+    global running
+    running = False
+
 quit_button = UIButton(
     pygame.transform.scale(
         pygame.image.load('exit.png').convert_alpha(), (50, 50)),
-    Rect(size[0] - 60, 10, 50, 50)
+    Rect(size[0] - 60, 10, 50, 50),
+    [on_quit_button]
 )
+
 ui_group.add(quit_button)
 
 
@@ -346,6 +369,8 @@ running = True
 smoothfps = FPS if FPS > 0 else 1000
 fps_smoothing = 0.9
 
+MOUSE_EVENT_TYPES = [MOUSEBUTTONDOWN, MOUSEBUTTONUP, MOUSEMOTION, MOUSEWHEEL]
+mouse_events = []
 while running:
 
     delta_time = clock.tick(FPS) / 1000     ## will make the loop run at the same speed all the time
@@ -360,6 +385,7 @@ while running:
     #     print('FPS:', '>1000', ' '*24, end='\r')
     print('FPS:', int(smoothfps), ' '*24, end='\r')
     
+    mouse_events.clear()
     #1 Process input/events
     for event in pygame.event.get():        # gets all the events which have occured till now and keeps tab of them.
         ## listening for the the X button at the top
@@ -383,6 +409,8 @@ while running:
                 movement.y -= 1
             elif event.key == K_s:
                 movement.y += 1
+        elif event.type in MOUSE_EVENT_TYPES:
+            mouse_events.append(event)
 
 
     #2 Update
@@ -406,7 +434,7 @@ while running:
     ########################
 
     ## Done after drawing everything to the screen
-    ui_group.update()
+    ui_group.update(mouse_events)
     ui_group.draw(screen)
     pygame.display.flip()       
 
