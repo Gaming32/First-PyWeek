@@ -1,10 +1,14 @@
 #!/usr/bin/env python3
 
-import os
-import random
+from enum import Enum
 import math
+import os
+import pickle
+import random
 from sys import stdout
 from typing import Callable, Union
+import numpy
+import copyreg
 
 import pygame
 from pygame import Surface, time
@@ -40,6 +44,8 @@ BLACK = (0, 0, 0)
 RED = (255, 0, 0)
 GREEN = (0, 255, 0)
 BLUE = (0, 0, 255)
+
+mode_2d = False
 
 ## initialize pygame and create window
 pygame.init()
@@ -186,7 +192,10 @@ class Player(PositionBasedSprite):
         # mouse_direction = -mouse_rel.as_polar()[1] - 90
         # self.rotation = mouse_direction
         if movement:
-            self.position += movement.normalize() * delta_time * SPEED
+            to_move = movement.normalize()
+            if mode_2d:
+                to_move.y *= 2
+            self.position += to_move * delta_time * SPEED
             # self.position.update(clamp(self.position.x, -24, 24), clamp(self.position.y, -2, 18))
             oldpos = Vector2(self.position)
             self.position.update(((-self.position.x) % 24) * -1, clamp(self.position.y, -2, 18))
@@ -194,14 +203,20 @@ class Player(PositionBasedSprite):
                 camera_offset = oldpos - camera.position
                 camera.position.update(self.position - camera_offset)
             general_direction = (math.degrees(math.atan2(movement.y, movement.x)) + 45) // 45
-            if general_direction == -1:
-                animation_direction = 0
-            elif general_direction in (5, 4, -2):
-                animation_direction = 1
-            elif general_direction == 3:
-                animation_direction = 3
+            if not mode_2d:
+                if general_direction == -1:
+                    animation_direction = 0
+                elif general_direction in (5, 4, -2):
+                    animation_direction = 1
+                elif general_direction == 3:
+                    animation_direction = 3
+                else:
+                    animation_direction = 2
             else:
-                animation_direction = 2
+                if general_direction == 5:
+                    animation_direction = 1
+                else:
+                    animation_direction = 2
             self.base_image = get_player_animation_frame(self.player_raw_image,
                                                          animation_direction)
 
@@ -284,8 +299,132 @@ class StandalonePositionBasedRenderer:
             on.blit(surf, rect)
 
 
+level_font = pygame.font.SysFont('calibri', 20)
+
+
+class Tile(PositionBasedSprite):
+    def __init__(self, x, y):
+        if not isinstance(self.__class__.base_image, Surface):
+            self.__class__.base_image = pygame.image.load(self.__class__.base_image)
+        super().__init__(1)
+        self.position.update(x, y)
+
+
+class TileTypes(Enum):
+    Air = 0xffffff
+    Spawn = 0x00ff00
+    Wall = 0x006080
+    Ground = 0x008000
+
+
+class GroundTile(Tile):
+    base_image = 'assets/grass.png'
+
+
+class LevelData:
+    def __init__(self, number):
+        self.number = number
+        self.root = f'levels/level{number}'
+        self._init_attrs()
+        if not os.path.isdir(self.root):
+            print(f'Warning: "{self.root}" does not exist or is not a directory. Level skipped.')
+        else:
+            self._load_level()
+            # self.background = pygame.image.load(self._get_file_path('background.jpg'))
+
+    def _get_file_path(self, file):
+        return os.path.join(self.root, file)
+
+    def _init_attrs(self):
+        self.size = (0, 0)
+        self.tiles = []
+    
+    def _load_level(self):
+        map_path = self._get_file_path('map.png')
+        level_map_image = pygame.image.load(map_path)
+        level_map = pygame.surfarray.array2d(level_map_image)
+        del level_map_image
+        self.size = level_map.shape
+        height = self.size[1]
+        for x in range(self.size[0]):
+            row = []
+            self.tiles.append(row)
+            for y in range(height):
+                pixel = level_map[x, y]
+                if pixel == TileTypes.Air.value:
+                    row.append(None)
+                elif pixel == TileTypes.Spawn.value:
+                    row.append(None)
+                elif pixel == TileTypes.Ground.value:
+                    tile = GroundTile(x, height - y)
+                    row.append(tile)
+                else:
+                    print(f'Unknown color in {map_path}({x},{y}): {hex(pixel)} Skipping tile.')
+
+
 class GameStartingItem(PositionBasedSprite):
-    pass
+    current_level = None
+    base_image = pygame.image.load('assets/tree.png').convert_alpha()
+    levels = []
+
+    def __init__(self, number):
+        super().__init__(1)
+        self.levels.append(self)
+        self.position += (-number * 2.5, 2)
+        self.number = number
+        foreground_sprites.add(self)
+        self.base_image = self.base_image.copy()
+        text = level_font.render(str(number + 1), False, WHITE)
+        rect = text.get_rect()
+        rect.x = rect.x + 11 - rect.width // 2
+        rect.y = rect.y + 11 - rect.height // 2
+        self.base_image.blit(text, rect)
+        self.data = self._load_data()
+
+    def _load_data(self) -> LevelData:
+        cached_level = f'cache/level{self.number}.pkl'
+        if os.path.exists(cached_level):
+            with open(cached_level, 'rb') as fp:
+                result = pickle.load(fp)
+                if not isinstance(result, LevelData):
+                    raise TypeError('Cached level is not an instance of LevelData')
+                return result
+        else:
+            result = LevelData(self.number)
+            with open(cached_level, 'wb') as fp:
+                pickle.dump(result, fp)
+            return result
+
+    def update(self, *args, **kwargs):
+        if self.rect.colliderect(player.rect):
+            print('Level', self.number, 'started')
+            global mode_2d
+            mode_2d = True
+            player.position.y = 0
+            movement.update(0, 0)
+            foreground_sprites.remove(*self.levels)
+            self._begin_level()
+
+    def _begin_level(self):
+        for row in self.data.tiles:
+            foreground_sprites.add(*(tile for tile in row if tile is not None))
+        GameStartingItem.current_level = self
+
+    def _end_level(self):
+        for row in self.data.tiles:
+            foreground_sprites.remove(*(tile for tile in row if tile is not None))
+
+
+level0 = GameStartingItem(0)
+level1 = GameStartingItem(1)
+level2 = GameStartingItem(2)
+level3 = GameStartingItem(3)
+level4 = GameStartingItem(4)
+level5 = GameStartingItem(5)
+level6 = GameStartingItem(6)
+level7 = GameStartingItem(7)
+level8 = GameStartingItem(8)
+level9 = GameStartingItem(9)
 
 
 # background_sprites = pygame.sprite.Group()
@@ -412,6 +551,8 @@ while running:
     #     print('FPS:', '>1000', ' '*24, end='\r')
     stdout.write(f'FPS: {int(smoothfps)}{" " * 24}\r')
     
+    # if mode_2d:
+    #     movement.y = 0
     mouse_events.clear()
     #1 Process input/events
     for event in pygame.event.get():        # gets all the events which have occured till now and keeps tab of them.
@@ -423,19 +564,27 @@ while running:
                 movement.x -= 1
             elif event.key == K_d:
                 movement.x += 1
-            elif event.key == K_w:
-                movement.y += 1
-            elif event.key == K_s:
-                movement.y -= 1
+            if not mode_2d:
+                if event.key == K_w:
+                    movement.y += 1
+                elif event.key == K_s:
+                    movement.y -= 1
+            else:
+                if event.key == K_SPACE:
+                    movement.y = 1000
         elif event.type == KEYUP:
             if event.key == K_a:
                 movement.x += 1
             elif event.key == K_d:
                 movement.x -= 1
-            elif event.key == K_w:
-                movement.y -= 1
-            elif event.key == K_s:
-                movement.y += 1
+            if not mode_2d:
+                if event.key == K_w:
+                    movement.y -= 1
+                elif event.key == K_s:
+                    movement.y += 1
+            else:
+                if event.key == K_SPACE:
+                    movement.y = 0
         elif event.type in MOUSE_EVENT_TYPES:
             mouse_events.append(event)
 
@@ -445,10 +594,14 @@ while running:
     camera.update(player)
 
     #3 Draw/render
-    screen.fill(BLACK)
+    if mode_2d:
+        # screen.fill(BLACK)
+        # screen.blit(GameStartingItem.current_level.data.background, Rect((0, 0), size))
+        pass
 
     # background_sprites.draw(screen)
-    background.draw(screen)
+    if not mode_2d:
+        background.draw(screen)
     foreground_sprites.draw(screen)
     ########################
 
