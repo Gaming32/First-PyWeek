@@ -173,8 +173,7 @@ class PositionBasedSprite(pygame.sprite.Sprite):
 
 
 class Player(PositionBasedSprite):
-    player_raw_image = pygame.image.load('player.png').convert_alpha()
-    base_image = pygame.image.load('smile.png').convert_alpha()
+    player_raw_image = pygame.image.load('assets/player.png').convert_alpha()
 
     def __init__(self):
         super().__init__(1)
@@ -188,11 +187,16 @@ class Player(PositionBasedSprite):
         # self.rotation = mouse_direction
         if movement:
             self.position += movement.normalize() * delta_time * SPEED
-            self.position.update(clamp(self.position.x, -32, 32), clamp(self.position.y, -2, 24))
+            # self.position.update(clamp(self.position.x, -24, 24), clamp(self.position.y, -2, 18))
+            oldpos = Vector2(self.position)
+            self.position.update(((-self.position.x) % 24) * -1, clamp(self.position.y, -2, 18))
+            if abs(self.position.x - oldpos.x) > 12:
+                camera_offset = oldpos - camera.position
+                camera.position.update(self.position - camera_offset)
             general_direction = (math.degrees(math.atan2(movement.y, movement.x)) + 45) // 45
             if general_direction == -1:
                 animation_direction = 0
-            elif general_direction == 5:
+            elif general_direction in (5, 4, -2):
                 animation_direction = 1
             elif general_direction == 3:
                 animation_direction = 3
@@ -205,37 +209,25 @@ player = Player()
 # player.position += (16, 12)
 
 
-class Tile(PositionBasedSprite):
-    base_image = pygame.image.load('sand.png')
-    def __init__(self, size=None):
-        self.base_image = pygame.transform.rotate(self.base_image, 90*random.randrange(4))
-        super().__init__(size)
-
-
 map_point = (-40, 32)
 map_size = (80, 56)
 water_size = 8
 total_size = (map_size[0], map_size[1] + water_size)
 
-if os.path.exists('bigmap.png'):
-    bg_image = pygame.image.load('bigmap.png')
+if os.path.exists('cache'):
+    bg_image = pygame.image.load('cache/bigmap.png')
+
 else:
-    sand_base = pygame.image.load('sand.png')
-    water_base = pygame.image.load('water.png')
+    os.mkdir('cache')
+
+    sand_base = pygame.image.load('assets/sand.png')
+    water_base = pygame.image.load('assets/water.png')
     bg_image = Surface((total_size[0] * 16, total_size[1] * 16))
     sand = []
     water = []
     for r in range(4):
         sand.append(pygame.transform.rotate(sand_base, 90 * r))
         water.append(pygame.transform.rotate(water_base, 90 * r))
-    # tiles = []
-    # for x in range(-32, 33):
-    #     tiles.append([])
-    #     for y in range(-24, 25):
-    #         tile = Tile(1)
-    #         tile.position.update(Vector2(x, y))
-    #         tiles[-1].append(tile)
-    #         background_sprites.add(tile)
     for x in range(map_size[0]):
         for y in range(map_size[1]):
             rect = Rect(x * 16, y * 16, 16, 16)
@@ -244,7 +236,7 @@ else:
         for y in range(water_size):
             rect = Rect(x * 16, (y + map_size[1]) * 16, 16, 16)
             bg_image.blit(random.choice(water), rect)
-    pygame.image.save(bg_image, 'bigmap.png')
+    pygame.image.save(bg_image, 'cache/bigmap.png')
 
 
 class Background(PositionBasedSprite):
@@ -313,9 +305,9 @@ def inverted_colors(img):
 
 
 class UIButton(pygame.sprite.Sprite):
-    bgleft = pygame.image.load('button-bg-left.png').convert_alpha()
-    bgmiddle = pygame.image.load('button-bg-middle.png').convert_alpha()
-    bgright = pygame.image.load('button-bg-right.png').convert_alpha()
+    bgleft = pygame.image.load('assets/button-bg-left.png').convert_alpha()
+    bgmiddle = pygame.image.load('assets/button-bg-middle.png').convert_alpha()
+    bgright = pygame.image.load('assets/button-bg-right.png').convert_alpha()
 
     def __init__(self, content: Surface, rect: Rect, commands: Callable[[Event], None] =None, include_background=True):
         if commands is None:
@@ -390,7 +382,7 @@ def on_quit_button(event):
 
 quit_button = UIButton(
     pygame.transform.scale(
-        pygame.image.load('exit.png').convert_alpha(), (50, 50)),
+        pygame.image.load('assets/exit.png').convert_alpha(), (50, 50)),
     Rect(size[0] - 60, 10, 50, 50),
     [on_quit_button]
 )
