@@ -1,5 +1,8 @@
 import sys
+import os
 import subprocess
+import shutil
+import glob
 import runpy
 
 
@@ -11,5 +14,8 @@ if should_build:
     if subprocess.call([sys.executable, 'setup.py', 'build_ext']):
         print('The game could not be built, using non-built version'
               ' (Are Cython and setuptools installed?)')
+    else:
+        file_to_copy = next(glob.iglob('build/lib.*/*'))
+        shutil.copyfile(file_to_copy, os.path.basename(file_to_copy))
 
 runpy._run_module_as_main('game')
