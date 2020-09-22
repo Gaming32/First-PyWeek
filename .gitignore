@@ -3,3 +3,5 @@ bigmap.png
 problems.txt
 build
 *.c
+*.pyd
+.vscode/c_cpp_properties.json

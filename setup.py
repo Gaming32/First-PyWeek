@@ -3,5 +3,6 @@ from Cython.Build import cythonize
 
 
 setup(
-    ext_modules = cythonize('game.py')
+    ext_modules = cythonize('game.py'),
+    compiler_directives={'language_level' : '3str'},
 )
