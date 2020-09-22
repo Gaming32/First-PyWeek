@@ -283,7 +283,7 @@ class StandalonePositionBasedRenderer:
         base_vector = self._pos_in_screen()
         # base_vector = floor_vector(base_vector * scale)
         # base_vector.y = HEIGHT * scale_direct - base_vector.y
-        subrect = Rect(base_vector / 4, (160, 120))
+        subrect = Rect(base_vector // 4, (160, 120))
         if self.surface.get_rect().colliderect(subrect):
             surf = self.surface.subsurface(subrect)
             # print(tuple(int(x) for x in Vector2(size) * 16))
