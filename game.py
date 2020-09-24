@@ -110,6 +110,58 @@ def get_player_animation_frame(surface: Surface, direction):
     )
 
 
+class AutoSerializedDictionary(dict):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.set_save_path(None)
+        self._flush_interval = 2
+
+    def __setitem__(self, k, v) -> None:
+        super().__setitem__(k, v)
+        self._flush_interval -= 1
+        if self._flush_interval <= 0:
+            self.flush()
+            self._flush_interval = 2
+
+    def set_save_path(self, path):
+        self._save_path = path
+
+    def _open_output(self, mode):
+        return open(self._save_path, mode)
+
+    def flush(self):
+        if self._save_path is not None:
+            with self._open_output('w') as fp:
+                json.dump(self, fp)
+
+    def update_from_file(self):
+        if self._save_path is not None:
+            if not os.path.exists(self._save_path):
+                return
+            with self._open_output('r') as fp:
+                data = json.load(fp)
+                self.update(data)
+                return data
+
+    @classmethod
+    def open(cls, path):
+        self = cls()
+        self.set_save_path(path)
+        self.update_from_file()
+        return self
+
+    def close(self):
+        self.flush()
+
+    # def __del__(self):
+    #     self.close()
+
+save_game = AutoSerializedDictionary.open('save.json')
+if not save_game:
+    save_game['levels'] = 0
+    save_game['checkpoints'] = 0
+
+
 class Camera:
     def __init__(self):
         self.position = Vector2()
