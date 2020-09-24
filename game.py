@@ -268,9 +268,6 @@ class Player(PositionBasedSprite):
         moment = pymunk.moment_for_circle(mass, 0, radius)
         self.body = pymunk.Body(mass, moment)
         self.body.position = self.position
-        # self.body.center_of_gravity = Vector2(.5, -.5)
-        # self.shape = pymunk.Circle(self.body, 1)
-        # self.shape = pymunk.Poly(self.body,((-.5,-50),(50,-50),(50,50),(-50,50)))
         self.shape = pymunk.Poly.create_box(self.body, (2, 2))
         self.shape.friction = 1
         space.add(self.body, self.shape)
@@ -525,9 +522,6 @@ class LevelData:
         self.startpoint = Vector2()
         self.endpoint = Vector2()
         self.checkpoint = 0
-        self.body = pymunk.Body(body_type=pymunk.Body.STATIC)
-        self.verts = set()
-        self.shape = None
     
     def _load_level(self):
         map_path = self._get_file_path('map.png')
@@ -554,19 +548,6 @@ class LevelData:
                 else:
                     print(f'Unknown color in {map_path}({x},{y}): {hex(pixel)} Skipping tile.')
                 row.append(tile)
-                if tile is not None:
-                    self.verts.update([
-                        # (position.x + 1, position.y + 1),
-                        # (position.x + 2, position.y + 1),
-                        # (position.x + 1, position.y + 2),
-                        # (position.x + 2, position.y + 2),
-                        # (position.x - 0, position.y + 0),
-                        # (position.x + 1, position.y + 0),
-                        # (position.x + 1, position.y - 1),
-                        # (position.x - 0, position.y - 1),
-                    ])
-        # self.verts = list(self.verts)
-        # self.shape = pymunk.Poly(self.body, self.verts)
         del self._surf
 
     def iter_tiles(self):
