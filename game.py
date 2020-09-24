@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
 
-from enum import Enum
+import json
 import math
 import os
 import pickle
 import random
+from enum import Enum
 from sys import stdout
 from typing import Callable, Union
-import numpy
-import copyreg
 
 import pygame
+import pymunk
 from pygame import Surface, time
 from pygame.display import Info
 from pygame.event import Event
@@ -31,8 +31,20 @@ HEIGHT = 480
 RATIO = 4/3
 # FPS = 60
 FPS = 0
+FIXED_FPS = 50
 SPEED = 3
 CAMERA_SPEED = 1
+PLATFORM_SPEED = 8
+JUMP_SPEED = 100
+
+CAMERA_SPEEDS = [
+    1,
+    (10**2, 10),
+    (100**2, 100),
+    (1000**2, 1000),
+]
+CAMERA_SPEED_2 = (100**2, 10)
+CAMERA_SPEED_3 = (1000**2, 10)
 
 PLAYER_SLICE = (26, 36)
 PLAYER_ANIMATION_COUNT = 3
@@ -59,10 +71,13 @@ scale = scale_direct * growness
 offset = Vector2(640/2/growness, 480/2/growness)
 print('Scale:', scale_direct, scale)
 clock = pygame.time.Clock()     ## For syncing the FPS
+fixed_fps_delta = 1 / FIXED_FPS
 
 
 ## group all the sprites together for ease of update
 foreground_sprites = pygame.sprite.Group()
+space = pymunk.Space()
+space.gravity = (0, -15)
 
 
 def clamp(x, mi, ma):
@@ -100,7 +115,18 @@ class Camera:
         self.position = Vector2()
 
     def update(self, player):
-        value = clamp01(CAMERA_SPEED * delta_time)
+        speed = CAMERA_SPEEDS[0]
+        distance_to_player = self.position.distance_squared_to(player.position)
+        if distance_to_player > 100**2:
+            distance_to_player = math.sqrt(distance_to_player)
+            speed *= 10 ** (int(math.log10(distance_to_player)) ** 2)
+            print('Distance to player:', distance_to_player, '\t', 'Updated camera speed:', speed)
+            speed /= delta_time
+        # if distance_to_player > CAMERA_SPEED_2[0]:
+        #     speed *= CAMERA_SPEED_2[1]
+        #     if distance_to_player > 
+        #     print('Updated camera speed:', speed)
+        value = clamp01(speed * delta_time)
         newpos = self.position.lerp(player.position, value)
         if newpos.distance_squared_to(player.position) > 1:
             self.position.update(newpos)
@@ -185,23 +211,75 @@ class Player(PositionBasedSprite):
         super().__init__(1)
         self.base_image = get_player_animation_frame(self.player_raw_image, 0)
         self.animation_time_passed = 0
+        mass = 70
+        radius = 1
+        moment = pymunk.moment_for_circle(mass, 0, radius)
+        self.body = pymunk.Body(mass, moment)
+        self.body.position = self.position
+        # self.body.center_of_gravity = Vector2(.5, -.5)
+        # self.shape = pymunk.Circle(self.body, 1)
+        # self.shape = pymunk.Poly(self.body,((-.5,-50),(50,-50),(50,50),(-50,50)))
+        self.shape = pymunk.Poly.create_box(self.body, (2, 2))
+        self.shape.friction = 1
+        space.add(self.body, self.shape)
+
+    def check_grounding(self):
+        """ See if the player is on the ground. Used to see if we can jump. """
+        grounding = {
+            'normal': pymunk.Vec2d.zero(),
+            'penetration': pymunk.Vec2d.zero(),
+            'impulse': pymunk.Vec2d.zero(),
+            'position': pymunk.Vec2d.zero(),
+            'body': None
+        }
+
+        def f(arbiter):
+            n = -arbiter.contact_point_set.normal
+            if n.y > grounding['normal'].y:
+                grounding['normal'] = n
+                grounding['penetration'] = -arbiter.contact_point_set.points[0].distance
+                grounding['body'] = arbiter.shapes[1].body
+                grounding['impulse'] = arbiter.total_impulse
+                grounding['position'] = arbiter.contact_point_set.points[0].point_b
+
+        self.body.each_arbiter(f)
+
+        return grounding
 
     def update(self, *args, **kwargs):
         # mouse_pos = pygame.mouse.get_pos()
         # mouse_rel = Vector2(mouse_pos) - Vector2(self.rect.center)
         # mouse_direction = -mouse_rel.as_polar()[1] - 90
         # self.rotation = mouse_direction
+        if mode_2d:
+            self.position = self.body.position
+            if self.position.y < 0:
+                self.body.velocity = Vector2()
+                self.body.position = GameStartingItem.current_level.data.startpoint
         if movement:
             to_move = movement.normalize()
             if mode_2d:
-                to_move.y *= 2
-            self.position += to_move * delta_time * SPEED
+                impulse = to_move * delta_time * SPEED * self.body.mass
+                impulse.x -= self.body.velocity.x
+                impulse.x *= PLATFORM_SPEED
+                grounding = self.check_grounding()
+                if grounding['body'] is not None and abs(
+                    grounding['normal'].x / grounding['normal'].y) < self.shape.friction:
+                    impulse.y *= JUMP_SPEED
+                    impulse.y -= space.gravity.y
+                else:
+                    impulse.y = 0
+                self.body.apply_impulse_at_local_point(impulse)
+            else:
+                self.position += to_move * delta_time * SPEED
             # self.position.update(clamp(self.position.x, -24, 24), clamp(self.position.y, -2, 18))
-            oldpos = Vector2(self.position)
-            self.position.update(((-self.position.x) % 24) * -1, clamp(self.position.y, -2, 18))
-            if abs(self.position.x - oldpos.x) > 12:
-                camera_offset = oldpos - camera.position
-                camera.position.update(self.position - camera_offset)
+            if not mode_2d:
+                oldpos = Vector2(self.position)
+                mod = GameStartingItem.levels[-1].number * 2.5 + 2
+                self.position.update(((-self.position.x) % mod) * -1, clamp(self.position.y, -2, 9))
+                if abs(self.position.x - oldpos.x) > 12:
+                    camera_offset = oldpos - camera.position
+                    camera.position.update(self.position - camera_offset)
             general_direction = (math.degrees(math.atan2(movement.y, movement.x)) + 45) // 45
             if not mode_2d:
                 if general_direction == -1:
@@ -303,11 +381,37 @@ level_font = pygame.font.SysFont('calibri', 20)
 
 
 class Tile(PositionBasedSprite):
-    def __init__(self, x, y):
-        if not isinstance(self.__class__.base_image, Surface):
-            self.__class__.base_image = pygame.image.load(self.__class__.base_image)
+    base_image: Union[str, Surface]
+    friction: float
+
+    def __new__(cls, *args):
+        self = PositionBasedSprite.__new__(cls)
+        if not isinstance(cls.base_image, Surface):
+            cls.base_image = pygame.image.load(cls.base_image)
+        return self
+
+    def __init__(self, pos, level):
         super().__init__(1)
-        self.position.update(x, y)
+        self.position.update(pos)
+        verts = [tuple(int(x) for x in vert) for vert in [
+            (pos.x - 0, pos.y + 0),
+            (pos.x + 1, pos.y + 0),
+            (pos.x + 1, pos.y - 1),
+            (pos.x - 0, pos.y - 1),
+        ]]
+        # self.shape = pymunk.Poly(body, verts)
+        self.shape = []
+        radius = 0.1
+        if pos.x > 0 and level._surf[int(pos.x) - 1, int(pos.y)]:
+            self.shape.append(pymunk.Segment(level.body, verts[0], verts[3], radius))
+        if pos.x < level.size[0] - 1 and level._surf[int(pos.x) + 1, int(pos.y)]:
+            self.shape.append(pymunk.Segment(level.body, verts[1], verts[2], radius))
+        if pos.y > 0 and level._surf[int(pos.x), level.size[1] - int(pos.y)]:
+            self.shape.append(pymunk.Segment(level.body, verts[3], verts[2], radius))
+        if pos.y < level.size[1] - 1 and level._surf[int(pos.x), level.size[1] - int(pos.y) - 1]:
+            self.shape.append(pymunk.Segment(level.body, verts[0], verts[1], radius))
+        # self.shape = pymunk.Segment(body, (pos.x + 1, pos.y - .5), (pos.x + 2, pos.y - .5), .5)
+        # self.shape.friction = self.friction
 
 
 class TileTypes(Enum):
@@ -318,48 +422,95 @@ class TileTypes(Enum):
 
 
 class GroundTile(Tile):
+    base_image = 'assets/sand.png'
+    friction = 0.6
+
+
+class WallTile(Tile):
     base_image = 'assets/grass.png'
+    friction = 0.6
 
 
 class LevelData:
+    __slots__ = ['number', '_surf', 'root', 'success', 'meta', 'size', 'tiles', 'bgpath', 'bgrect', 'startpoint', 'endpoint', 'checkpoint', 'body', 'verts', 'shape']
+
     def __init__(self, number):
         self.number = number
         self.root = f'levels/level{number}'
         self._init_attrs()
         if not os.path.isdir(self.root):
             print(f'Warning: "{self.root}" does not exist or is not a directory. Level skipped.')
+            self.success = False
         else:
+            with open(self._get_file_path('level.json')) as fp:
+                self.meta = json.load(fp)
             self._load_level()
             # self.background = pygame.image.load(self._get_file_path('background.jpg'))
+            self.bgpath = self._get_file_path('background.png')
+            bgmeta = self.meta['background']
+            if 'rect' in bgmeta:
+                for (key, value) in bgmeta['rect'].items():
+                    setattr(self.bgrect, key, value)
+            self.success = True
 
     def _get_file_path(self, file):
         return os.path.join(self.root, file)
 
     def _init_attrs(self):
+        self.meta = {}
         self.size = (0, 0)
         self.tiles = []
+        self.bgpath = ''
+        self.bgrect = Rect(0, 0, 0, 0)
+        self.startpoint = Vector2()
+        self.endpoint = Vector2()
+        self.checkpoint = 0
+        self.body = pymunk.Body(body_type=pymunk.Body.STATIC)
+        self.verts = set()
+        self.shape = None
     
     def _load_level(self):
         map_path = self._get_file_path('map.png')
         level_map_image = pygame.image.load(map_path)
-        level_map = pygame.surfarray.array2d(level_map_image)
+        self._surf = pygame.surfarray.array2d(level_map_image)
         del level_map_image
-        self.size = level_map.shape
+        self.size = self._surf.shape
         height = self.size[1]
         for x in range(self.size[0]):
             row = []
             self.tiles.append(row)
             for y in range(height):
-                pixel = level_map[x, y]
+                pixel = self._surf[x, y]
+                position = Vector2(x, height - y)
+                tile = None
                 if pixel == TileTypes.Air.value:
-                    row.append(None)
+                    pass
                 elif pixel == TileTypes.Spawn.value:
-                    row.append(None)
+                    self.startpoint = position
                 elif pixel == TileTypes.Ground.value:
-                    tile = GroundTile(x, height - y)
-                    row.append(tile)
+                    tile = GroundTile(position, self)
+                elif pixel == TileTypes.Wall.value:
+                    tile = WallTile(position, self)
                 else:
                     print(f'Unknown color in {map_path}({x},{y}): {hex(pixel)} Skipping tile.')
+                row.append(tile)
+                if tile is not None:
+                    self.verts.update([
+                        # (position.x + 1, position.y + 1),
+                        # (position.x + 2, position.y + 1),
+                        # (position.x + 1, position.y + 2),
+                        # (position.x + 2, position.y + 2),
+                        # (position.x - 0, position.y + 0),
+                        # (position.x + 1, position.y + 0),
+                        # (position.x + 1, position.y - 1),
+                        # (position.x - 0, position.y - 1),
+                    ])
+        # self.verts = list(self.verts)
+        # self.shape = pymunk.Poly(self.body, self.verts)
+        del self._surf
+
+    def iter_tiles(self):
+        return (tile for row in self.tiles for tile in row if tile is not None)
 
 
 class GameStartingItem(PositionBasedSprite):
@@ -370,7 +521,7 @@ class GameStartingItem(PositionBasedSprite):
     def __init__(self, number):
         super().__init__(1)
         self.levels.append(self)
-        self.position += (-number * 2.5, 2)
+        self.position += (-number * 2.5 - 1, 2)
         self.number = number
         foreground_sprites.add(self)
         self.base_image = self.base_image.copy()
@@ -380,6 +531,11 @@ class GameStartingItem(PositionBasedSprite):
         rect.y = rect.y + 11 - rect.height // 2
         self.base_image.blit(text, rect)
         self.data = self._load_data()
+        if self.data.success:
+            self.background = pygame.transform.scale(
+                pygame.image.load(self.data.bgpath).subsurface(self.data.bgrect),
+                size
+            )
 
     def _load_data(self) -> LevelData:
         cached_level = f'cache/level{self.number}.pkl'
@@ -406,25 +562,21 @@ class GameStartingItem(PositionBasedSprite):
             self._begin_level()
 
     def _begin_level(self):
-        for row in self.data.tiles:
-            foreground_sprites.add(*(tile for tile in row if tile is not None))
         GameStartingItem.current_level = self
+        foreground_sprites.add(*self.data.iter_tiles())
+        space.add(*(x.shape for x in self.data.iter_tiles()))
+        # space.add(self.data.shape)
+        player.body.position = self.data.startpoint
 
     def _end_level(self):
-        for row in self.data.tiles:
-            foreground_sprites.remove(*(tile for tile in row if tile is not None))
+        foreground_sprites.remove(*self.data.iter_tiles())
+        space.remove(*(x.shape for x in self.data.iter_tiles()))
+        # space.remove(self.data.shape)
 
 
 level0 = GameStartingItem(0)
 level1 = GameStartingItem(1)
 level2 = GameStartingItem(2)
-level3 = GameStartingItem(3)
-level4 = GameStartingItem(4)
-level5 = GameStartingItem(5)
-level6 = GameStartingItem(6)
-level7 = GameStartingItem(7)
-level8 = GameStartingItem(8)
-level9 = GameStartingItem(9)
 
 
 # background_sprites = pygame.sprite.Group()
@@ -534,6 +686,7 @@ movement = Vector2()
 running = True
 smoothfps = FPS if FPS > 0 else 1000
 fps_smoothing = 0.9
+fixed_fps_passed = 0
 
 MOUSE_EVENT_TYPES = [MOUSEBUTTONDOWN, MOUSEBUTTONUP, MOUSEMOTION, MOUSEWHEEL]
 mouse_events = []
@@ -550,6 +703,8 @@ while running:
     # else:
     #     print('FPS:', '>1000', ' '*24, end='\r')
     stdout.write(f'FPS: {int(smoothfps)}{" " * 24}\r')
+
+    fixed_fps_passed += delta_time
     
     # if mode_2d:
     #     movement.y = 0
@@ -596,8 +751,7 @@ while running:
     #3 Draw/render
     if mode_2d:
         # screen.fill(BLACK)
-        # screen.blit(GameStartingItem.current_level.data.background, Rect((0, 0), size))
-        pass
+        screen.blit(GameStartingItem.current_level.background, Rect((0, 0), size))
 
     # background_sprites.draw(screen)
     if not mode_2d:
@@ -608,6 +762,11 @@ while running:
     ### Your code comes here
 
     ########################
+
+    if fixed_fps_passed > fixed_fps_delta:
+        fixed_fps_passed = 0
+        if mode_2d:
+            space.step(fixed_fps_delta)
 
     ## Done after drawing everything to the screen
     ui_group.update(mouse_events)
