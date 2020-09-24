@@ -374,7 +374,11 @@ class StandalonePositionBasedRenderer:
         # base_vector.y = HEIGHT * scale_direct - base_vector.y
         subrect = Rect(base_vector // 4, (160, 120))
         if self.surface.get_rect().colliderect(subrect):
-            surf = self.surface.subsurface(subrect)
+            try:
+                surf = self.surface.subsurface(subrect)
+            except ValueError as e:
+                print('Error occured in rendering', self, 'on', on, '\n  ', e)
+                return
             # print(tuple(int(x) for x in Vector2(size) * 16))
             surf = pygame.transform.scale(surf, size)
             rect = Rect((0, 0), size)
@@ -581,7 +585,8 @@ class GameStartingItem(PositionBasedSprite):
         self = GameStartingItem.current_level
         self._end_level()
         foreground_sprites.add(*self.levels)
-        player.position = Vector2(0, 0)
+        player.body.velocity = Vector2()
+        player.position = Vector2()
 
 level0 = GameStartingItem(0)
 level1 = GameStartingItem(1)
