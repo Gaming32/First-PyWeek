@@ -121,7 +121,6 @@ class Camera:
             distance_to_player = math.sqrt(distance_to_player)
             speed *= 10 ** (int(math.log10(distance_to_player)) ** 2)
             print('Distance to player:', distance_to_player, '\t', 'Updated camera speed:', speed)
-            speed /= delta_time
         # if distance_to_player > CAMERA_SPEED_2[0]:
         #     speed *= CAMERA_SPEED_2[1]
         #     if distance_to_player > 
@@ -209,6 +208,7 @@ class Player(PositionBasedSprite):
 
     def __init__(self):
         super().__init__(1)
+        self.death_count = 0
         self.base_image = get_player_animation_frame(self.player_raw_image, 0)
         self.animation_time_passed = 0
         mass = 70
@@ -254,8 +254,7 @@ class Player(PositionBasedSprite):
         if mode_2d:
             self.position = self.body.position
             if self.position.y < 0:
-                self.body.velocity = Vector2()
-                self.body.position = GameStartingItem.current_level.data.startpoint
+                self.die()
         if movement:
             to_move = movement.normalize()
             if mode_2d:
@@ -297,6 +296,11 @@ class Player(PositionBasedSprite):
                     animation_direction = 2
             self.base_image = get_player_animation_frame(self.player_raw_image,
                                                          animation_direction)
+    
+    def die(self):
+        self.death_count += 1
+        self.body.velocity = Vector2()
+        self.body.position = GameStartingItem.current_level.data.startpoint
 
 player = Player()
 # player.position += (16, 12)
@@ -556,7 +560,6 @@ class GameStartingItem(PositionBasedSprite):
             print('Level', self.number, 'started')
             global mode_2d
             mode_2d = True
-            player.position.y = 0
             movement.update(0, 0)
             foreground_sprites.remove(*self.levels)
             self._begin_level()
@@ -573,6 +576,12 @@ class GameStartingItem(PositionBasedSprite):
         space.remove(*(x.shape for x in self.data.iter_tiles()))
         # space.remove(self.data.shape)
 
+    @staticmethod
+    def exit_level():
+        self = GameStartingItem.current_level
+        self._end_level()
+        foreground_sprites.add(*self.levels)
+        player.position = Vector2(0, 0)
 
 level0 = GameStartingItem(0)
 level1 = GameStartingItem(1)
@@ -668,8 +677,13 @@ class UIButton(pygame.sprite.Sprite):
 
 
 def on_quit_button(event):
-    global running
-    running = False
+    global mode_2d
+    if mode_2d:
+        mode_2d = False
+        GameStartingItem.exit_level()
+    else:
+        global running
+        running = False
 
 quit_button = UIButton(
     pygame.transform.scale(
@@ -725,7 +739,7 @@ while running:
                 elif event.key == K_s:
                     movement.y -= 1
             else:
-                if event.key == K_SPACE:
+                if event.key in (K_SPACE, K_RETURN):
                     movement.y = 1000
         elif event.type == KEYUP:
             if event.key == K_a:
@@ -738,7 +752,7 @@ while running:
                 elif event.key == K_s:
                     movement.y += 1
             else:
-                if event.key == K_SPACE:
+                if event.key in (K_SPACE, K_RETURN):
                     movement.y = 0
         elif event.type in MOUSE_EVENT_TYPES:
             mouse_events.append(event)
@@ -757,11 +771,6 @@ while running:
     if not mode_2d:
         background.draw(screen)
     foreground_sprites.draw(screen)
-    ########################
-
-    ### Your code comes here
-
-    ########################
 
     if fixed_fps_passed > fixed_fps_delta:
         fixed_fps_passed = 0
