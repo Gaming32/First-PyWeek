@@ -5,5 +5,13 @@
 ; The alpha ('aa') value specifies how transparent a color is. FF is fully opaque, 00 is fully transparent.
 ; A palette must consist of ninety six (96) colors. If there are less than this, the remaining color
 ; slots will be set to white (FFFFFFFF). If there are more, then the remaining colors will be ignored.
+FFFFFFFF ; Air
+FF7FFF7F ; Starting point
+FF3FFF3F ; Checkpoint
+FF00FF00 ; Ending point
 FFFFFFFF
-FF008000
+FF008000 ; Sand
+FF806000 ; Grass
+FFFFFFFF
+FF7F3F3F ; Enemy moving left
+FFBF5F5F ; Enemy moving right

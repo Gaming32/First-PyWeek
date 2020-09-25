@@ -7,7 +7,7 @@ import pickle
 import random
 from enum import Enum
 from sys import stdout
-from typing import Callable, Union
+from typing import Callable, Set, Union
 
 import pygame
 from pygame import Surface, time
@@ -35,7 +35,7 @@ SPEED = 3
 CAMERA_SPEED = 1
 PLATFORM_SPEED = 8
 JUMP_SPEED = 0.15
-MOVING_JUMP_SPEED = 0.2
+MOVING_JUMP_SPEED = 0.175
 GRAVITY = -0.005
 
 PLAYER_SLICE = (26, 36)
@@ -104,14 +104,14 @@ class AutoSerializedDictionary(dict):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.set_save_path(None)
-        self._flush_interval = 2
+        self._flush_interval = 1
 
     def __setitem__(self, k, v) -> None:
         super().__setitem__(k, v)
         self._flush_interval -= 1
         if self._flush_interval <= 0:
             self.flush()
-            self._flush_interval = 2
+            self._flush_interval = 10
 
     def set_save_path(self, path):
         self._save_path = path
@@ -150,6 +150,8 @@ save_game = AutoSerializedDictionary.open('save.json')
 if not save_game:
     save_game['levels'] = 0
     save_game['checkpoints'] = 0
+    save_game['death_count'] = 0
+    save_game.flush()
 
 
 def in_range(x, start, stop):
@@ -252,17 +254,26 @@ class PositionBasedSprite(pygame.sprite.Sprite):
         return rect
 
 
-class Player(PositionBasedSprite):
-    player_raw_image = pygame.image.load('assets/player.png').convert_alpha()
+class PhysicsEnabledSprite(PositionBasedSprite):
+    active_sprites = set()
 
-    def __init__(self):
-        super().__init__(1)
-        self.death_count = 0
-        self.base_image = get_player_animation_frame(self.player_raw_image, 0)
-        self.animation_time_passed = 0
+    @classmethod
+    def global_physics_update(cls):
+        for sprite in cls.active_sprites:
+            sprite.physics_update()
+
+    def __init__(self, size=None):
+        super().__init__(size)
         self.vertical_velocity = 0
         self._collisions = [None] * 5
         self.grounded = False
+        self.activate()
+
+    def activate(self):
+        self.active_sprites.add(self)
+
+    def deactivate(self):
+        self.active_sprites.remove(self)
 
     def collisions(self):
         if fixed_fps_passed == 0:
@@ -307,7 +318,15 @@ class Player(PositionBasedSprite):
         if self.is_colliding(1):
             self.vertical_velocity = min(0, self.vertical_velocity)
         self.position.y += self.vertical_velocity
-        # self.vertical_velocity += GRAVITY
+
+
+class Player(PhysicsEnabledSprite):
+    player_raw_image = pygame.image.load('assets/player.png').convert_alpha()
+
+    def __init__(self):
+        super().__init__(1)
+        self.base_image = get_player_animation_frame(self.player_raw_image, 0)
+        self.animation_time_passed = 0
 
     def update(self, *args, **kwargs):
         # mouse_pos = pygame.mouse.get_pos()
@@ -324,19 +343,6 @@ class Player(PositionBasedSprite):
                     if self.grounded:
                         self.vertical_velocity = MOVING_JUMP_SPEED if to_move.x else JUMP_SPEED
                     to_move.y = 0
-            # if mode_2d:
-            #     impulse = to_move * delta_time * SPEED * self.body.mass
-            #     impulse.x -= self.body.velocity.x
-            #     impulse.x *= PLATFORM_SPEED
-            #     grounding = self.check_grounding()
-            #     if grounding['body'] is not None and abs(
-            #         grounding['normal'].x / grounding['normal'].y) < self.shape.friction:
-            #         impulse.y *= JUMP_SPEED
-            #         impulse.y -= space.gravity.y
-            #     else:
-            #         impulse.y = 0
-            #     self.body.apply_impulse_at_local_point(impulse)
-            # else:
             if not self.is_colliding(0):
                 if self.is_colliding(3):
                     to_move.x = max(0, to_move.x)
@@ -368,14 +374,53 @@ class Player(PositionBasedSprite):
                     animation_direction = 2
             self.base_image = get_player_animation_frame(self.player_raw_image,
                                                          animation_direction)
+        if mode_2d:
+            if int(self.position.x) == GameStartingItem.current_level.data.checkpoint.x:
+                save_game['checkpoints'] |= GameStartingItem.current_level.save_bit
+            if self.position.distance_squared_to(GameStartingItem.current_level.data.endpoint) <= 1:
+                GameStartingItem.current_level.exit_level(True)
     
     def die(self):
-        self.death_count += 1
-        self.position.update(GameStartingItem.current_level.data.startpoint)
+        save_game['death_count'] += 1
+        self.position.update(GameStartingItem.current_level.get_spawn())
         self.vertical_velocity = 0
+        death_counter.rect, death_counter.content = create_death_counter()
 
 player = Player()
-# player.position += (16, 12)
+
+
+class Enemy(PhysicsEnabledSprite):
+    base_image = pygame.image.load('assets/enemy.png').convert_alpha()
+    enemies = []
+
+    @classmethod
+    def remove_enemies(cls):
+        for enemy in cls.enemies:
+            enemy.deactivate()
+            foreground_sprites.remove(enemy)
+        cls.enemies.clear()
+
+    def __init__(self, position, direction):
+        self.original_position = position
+        super().__init__(1)
+        self.movement_direction = direction
+        self.deactivate()
+
+    def activate(self):
+        super().activate()
+        foreground_sprites.add(self)
+        self.position = Vector2(self.original_position)
+
+    def physics_update(self):
+        super().physics_update()
+        collide_direction = 3 + (self.movement_direction > 0)
+        if self.is_colliding(collide_direction):
+            self.movement_direction *= -1
+        self.rotation += 90 * fixed_fps_delta * self.movement_direction * -1
+        self.rotation %= 360
+        self.position.x += self.movement_direction * fixed_fps_delta
+        if self.rect.colliderect(player.rect):
+            player.die()
 
 
 map_point = (-40, 32)
@@ -478,9 +523,16 @@ class Tile(PositionBasedSprite):
 
 class TileTypes(Enum):
     Air = 0xffffff
-    Spawn = 0x00ff00
+
+    Spawn = 0x7fff7f
+    Checkpoint = 0x3fff3f
+    Goal = 0x00ff00
+
     Wall = 0x006080
     Ground = 0x008000
+
+    EnemyLeft = 0x3f3f7f
+    EnemyRight = 0x5f5fbf
 
 
 class GroundTile(Tile):
@@ -493,8 +545,23 @@ class WallTile(Tile):
     friction = 0.6
 
 
+class GoalTile(Tile):
+    base_image = Surface((16, 16)).convert_alpha()
+    base_image.fill((0, 255, 0, 128))
+    collidable = False
+
+
+class EnemyPlaceholder:
+    def __init__(self, position, direction):
+        self.position = position
+        self.direction = direction
+    
+    def create_enemy(self) -> Enemy:
+        return Enemy(self.position, self.direction)
+
+
 class LevelData:
-    __slots__ = ['number', '_surf', 'root', 'success', 'meta', 'size', 'tiles', 'bgpath', 'bgrect', 'startpoint', 'endpoint', 'checkpoint', 'verts', 'shape']
+    __slots__ = ['enemies', 'number', '_surf', 'root', 'success', 'meta', 'size', 'tiles', 'bgpath', 'bgrect', 'startpoint', 'endpoint', 'checkpoint', 'verts', 'shape']
 
     def __init__(self, number):
         self.number = number
@@ -526,7 +593,8 @@ class LevelData:
         self.bgrect = Rect(0, 0, 0, 0)
         self.startpoint = Vector2()
         self.endpoint = Vector2()
-        self.checkpoint = 0
+        self.checkpoint = Vector2()
+        self.enemies = []
 
     def _load_level(self):
         map_path = self._get_file_path('map.png')
@@ -542,14 +610,30 @@ class LevelData:
                 pixel = self._surf[x, y]
                 position = Vector2(x, height - y)
                 tile = None
+                # Air
                 if pixel == TileTypes.Air.value:
                     pass
+                # Control
                 elif pixel == TileTypes.Spawn.value:
                     self.startpoint = position
+                elif pixel == TileTypes.Checkpoint.value:
+                    self.checkpoint = position
+                elif pixel == TileTypes.Goal.value:
+                    tile = GoalTile(position, self)
+                    self.endpoint = position
+                # Collidable
                 elif pixel == TileTypes.Ground.value:
                     tile = GroundTile(position, self)
                 elif pixel == TileTypes.Wall.value:
                     tile = WallTile(position, self)
+                # Enemies
+                elif pixel == TileTypes.EnemyLeft.value:
+                    enemy = EnemyPlaceholder(position, -1)
+                    self.enemies.append(enemy)
+                elif pixel == TileTypes.EnemyRight.value:
+                    enemy = EnemyPlaceholder(position, 1)
+                    self.enemies.append(enemy)
+                # Else
                 else:
                     print(f'Unknown color in {map_path}({x},{y}): {hex(pixel)} Skipping tile.')
                 row.append(tile)
@@ -561,7 +645,7 @@ class LevelData:
 
 class GameStartingItem(PositionBasedSprite):
     current_level = None
-    base_image = pygame.image.load('assets/tree.png').convert_alpha()
+    tree_image = pygame.image.load('assets/tree.png').convert_alpha()
     levels = []
 
     def __init__(self, number):
@@ -569,19 +653,36 @@ class GameStartingItem(PositionBasedSprite):
         self.levels.append(self)
         self.position += (-number * 2.5 - 1, 2)
         self.number = number
+        self.save_bit = 2**number
         foreground_sprites.add(self)
-        self.base_image = self.base_image.copy()
-        text = level_font.render(str(number + 1), False, WHITE)
-        rect = text.get_rect()
-        rect.x = rect.x + 11 - rect.width // 2
-        rect.y = rect.y + 11 - rect.height // 2
-        self.base_image.blit(text, rect)
+        self.base_image = Surface((22, 22)).convert_alpha()
+        self._create_base_image()
         self.data = self._load_data()
         if self.data.success:
             self.background = pygame.transform.scale(
                 pygame.image.load(self.data.bgpath).subsurface(self.data.bgrect),
                 size
             )
+
+    def _create_base_image(self):
+        background_color = (0, 0, 0, 0)
+        if save_game['levels'] & self.save_bit:
+            background_color = (0, 255, 0, 128)
+        elif not self.is_unlocked():
+            background_color = (255, 0, 0, 128)
+        self.base_image.fill(background_color)
+        self.base_image.blit(self.tree_image, self.tree_image.get_rect())
+        text = level_font.render(str(self.number + 1), False, WHITE)
+        rect = text.get_rect()
+        rect.x = rect.x + 11 - rect.width // 2
+        rect.y = rect.y + 11 - rect.height // 2
+        self.base_image.blit(text, rect)
+
+    def is_unlocked(self):
+        if self.number == 0:
+            return True
+        last_level = self.levels[self.number - 1]
+        return save_game['checkpoints'] & last_level.save_bit
 
     def _load_data(self) -> LevelData:
         cached_level = f'cache/level{self.number}.pkl'
@@ -598,12 +699,16 @@ class GameStartingItem(PositionBasedSprite):
             return result
 
     def update(self, *args, **kwargs):
-        if self.rect.colliderect(player.rect):
+        if self.is_unlocked() and self.rect.colliderect(player.rect):
             print('Level', self.number, 'started')
             global mode_2d
             mode_2d = True
             movement.update(0, 0)
             foreground_sprites.remove(*self.levels)
+            enemies = [enemy.create_enemy() for enemy in self.data.enemies]
+            Enemy.enemies.extend(enemies)
+            for enemy in enemies:
+                enemy.activate()
             self._begin_level()
 
     def _begin_level(self):
@@ -611,18 +716,30 @@ class GameStartingItem(PositionBasedSprite):
         foreground_sprites.add(*self.data.iter_tiles())
         # space.add(self.data.shape)
         player.vertical_velocity = 0
-        player.position.update(self.data.startpoint)
+        player.position.update(self.get_spawn())
 
     def _end_level(self):
         foreground_sprites.remove(*self.data.iter_tiles())
         # space.remove(self.data.shape)
 
     @staticmethod
-    def exit_level():
+    def exit_level(because_beat=False):
+        global mode_2d
+        mode_2d = False
         self = GameStartingItem.current_level
         self._end_level()
+        if because_beat:
+            save_game['levels'] |= self.save_bit
+        for level in self.levels:
+            level._create_base_image()
         foreground_sprites.add(*self.levels)
         player.position = Vector2()
+        save_game.flush()
+
+    def get_spawn(self):
+        if save_game['checkpoints'] & self.save_bit:
+            return self.data.checkpoint
+        return self.data.startpoint
 
 level0 = GameStartingItem(0)
 level1 = GameStartingItem(1)
@@ -638,6 +755,21 @@ foreground_sprites.add(player)
 ui_group = pygame.sprite.Group()
 
 
+class UIImage(pygame.sprite.Sprite):
+    def __init__(self, content: Surface, rect: Rect):
+        super().__init__(ui_group)
+        self.rect = rect
+        self.content = content
+
+    @property
+    def content(self):
+        return self.image
+
+    @content.setter
+    def content(self, value):
+        self.image = pygame.transform.scale(value, self.rect.size)
+
+
 def inverted_colors(img):
     inv = Surface(img.get_rect().size, SRCALPHA)
     inv.fill((255, 255, 255, 255))
@@ -650,10 +782,10 @@ class UIButton(pygame.sprite.Sprite):
     bgmiddle = pygame.image.load('assets/button-bg-middle.png').convert_alpha()
     bgright = pygame.image.load('assets/button-bg-right.png').convert_alpha()
 
-    def __init__(self, content: Surface, rect: Rect, commands: Callable[[Event], None] =None, include_background=True):
+    def __init__(self, content: Surface, rect: Rect, commands: Callable[[Event], None] = None, include_background=True):
         if commands is None:
             commands = []
-        super().__init__()
+        super().__init__(ui_group)
         self.background = Surface(rect.size, pygame.SRCALPHA, 32).convert_alpha()
         self.content = content
         self.rect = rect
@@ -718,9 +850,7 @@ class UIButton(pygame.sprite.Sprite):
 
 
 def on_quit_button(event):
-    global mode_2d
     if mode_2d:
-        mode_2d = False
         GameStartingItem.exit_level()
     else:
         global running
@@ -733,7 +863,16 @@ quit_button = UIButton(
     [on_quit_button]
 )
 
-ui_group.add(quit_button)
+
+death_font = pygame.font.SysFont('calibri', 100)
+
+def create_death_counter(newrect=Rect(20, 20, 1000, 100)):
+    value = f"Deaths: {save_game['death_count']}"
+    rendered_font = death_font.render(value, True, WHITE)
+    rect = rendered_font.get_rect().fit(newrect)
+    return rect, rendered_font
+
+death_counter = UIImage(*reversed(create_death_counter()))
 
 
 movement = Vector2()
@@ -745,6 +884,9 @@ fixed_fps_passed = 0
 
 MOUSE_EVENT_TYPES = [MOUSEBUTTONDOWN, MOUSEBUTTONUP, MOUSEMOTION, MOUSEWHEEL]
 mouse_events = []
+
+pressed_keys = set()
+
 while running:
 
     delta_time = clock.tick(FPS) / 1000     ## will make the loop run at the same speed all the time
@@ -770,33 +912,35 @@ while running:
         if event.type == pygame.QUIT:
             running = False
         elif event.type == KEYDOWN:
-            if event.key == K_a:
-                movement.x -= 1
-            elif event.key == K_d:
-                movement.x += 1
-            if not mode_2d:
-                if event.key == K_w:
-                    movement.y += 1
-                elif event.key == K_s:
-                    movement.y -= 1
-            else:
+            pressed_keys.add(event.key)
+            # if event.key == K_a:
+            #     movement.x = -1
+            # elif event.key == K_d:
+            #     movement.x = 1
+            if mode_2d:
                 if event.key in (K_SPACE, K_RETURN):
                     movement.y = 1
         elif event.type == KEYUP:
-            if event.key == K_a:
-                movement.x += 1
-            elif event.key == K_d:
-                movement.x -= 1
-            if not mode_2d:
-                if event.key == K_w:
-                    movement.y -= 1
-                elif event.key == K_s:
-                    movement.y += 1
-            else:
+            pressed_keys.remove(event.key)
+            # if event.key in (K_a, K_d):
+            #     movement.x = 0
+            if mode_2d:
                 if event.key in (K_SPACE, K_RETURN):
                     movement.y = 0
         elif event.type in MOUSE_EVENT_TYPES:
             mouse_events.append(event)
+
+    movement.x = 0
+    if K_a in pressed_keys:
+        movement.x -= 1
+    if K_d in pressed_keys:
+        movement.x += 1
+    if not mode_2d:
+        movement.y = 0
+        if K_w in pressed_keys:
+            movement.y += 1
+        if K_s in pressed_keys:
+            movement.y -= 1
 
     #2 Update
     # background_sprites.update()
@@ -816,7 +960,8 @@ while running:
     if fixed_fps_passed > fixed_fps_delta:
         fixed_fps_passed = 0
         if mode_2d:
-            player.physics_update()
+            PhysicsEnabledSprite.global_physics_update()
+            # player.physics_update()
         #     space.step(fixed_fps_delta)
 
     ## Done after drawing everything to the screen
