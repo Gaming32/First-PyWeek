@@ -10,7 +10,6 @@ from sys import stdout
 from typing import Callable, Union
 
 import pygame
-import pymunk
 from pygame import Surface, time
 from pygame.display import Info
 from pygame.event import Event
@@ -76,8 +75,6 @@ fixed_fps_delta = 1 / FIXED_FPS
 
 ## group all the sprites together for ease of update
 foreground_sprites = pygame.sprite.Group()
-space = pymunk.Space()
-space.gravity = (0, -15)
 
 
 def clamp(x, mi, ma):
@@ -263,37 +260,6 @@ class Player(PositionBasedSprite):
         self.death_count = 0
         self.base_image = get_player_animation_frame(self.player_raw_image, 0)
         self.animation_time_passed = 0
-        mass = 70
-        radius = 1
-        moment = pymunk.moment_for_circle(mass, 0, radius)
-        self.body = pymunk.Body(mass, moment)
-        self.body.position = self.position
-        self.shape = pymunk.Poly.create_box(self.body, (2, 2))
-        self.shape.friction = 1
-        space.add(self.body, self.shape)
-
-    def check_grounding(self):
-        """ See if the player is on the ground. Used to see if we can jump. """
-        grounding = {
-            'normal': pymunk.Vec2d.zero(),
-            'penetration': pymunk.Vec2d.zero(),
-            'impulse': pymunk.Vec2d.zero(),
-            'position': pymunk.Vec2d.zero(),
-            'body': None
-        }
-
-        def f(arbiter):
-            n = -arbiter.contact_point_set.normal
-            if n.y > grounding['normal'].y:
-                grounding['normal'] = n
-                grounding['penetration'] = -arbiter.contact_point_set.points[0].distance
-                grounding['body'] = arbiter.shapes[1].body
-                grounding['impulse'] = arbiter.total_impulse
-                grounding['position'] = arbiter.contact_point_set.points[0].point_b
-
-        self.body.each_arbiter(f)
-
-        return grounding
 
     def update(self, *args, **kwargs):
         # mouse_pos = pygame.mouse.get_pos()
@@ -301,25 +267,24 @@ class Player(PositionBasedSprite):
         # mouse_direction = -mouse_rel.as_polar()[1] - 90
         # self.rotation = mouse_direction
         if mode_2d:
-            self.position = self.body.position
             if self.position.y < 0:
                 self.die()
         if movement:
             to_move = movement.normalize()
-            if mode_2d:
-                impulse = to_move * delta_time * SPEED * self.body.mass
-                impulse.x -= self.body.velocity.x
-                impulse.x *= PLATFORM_SPEED
-                grounding = self.check_grounding()
-                if grounding['body'] is not None and abs(
-                    grounding['normal'].x / grounding['normal'].y) < self.shape.friction:
-                    impulse.y *= JUMP_SPEED
-                    impulse.y -= space.gravity.y
-                else:
-                    impulse.y = 0
-                self.body.apply_impulse_at_local_point(impulse)
-            else:
-                self.position += to_move * delta_time * SPEED
+            # if mode_2d:
+            #     impulse = to_move * delta_time * SPEED * self.body.mass
+            #     impulse.x -= self.body.velocity.x
+            #     impulse.x *= PLATFORM_SPEED
+            #     grounding = self.check_grounding()
+            #     if grounding['body'] is not None and abs(
+            #         grounding['normal'].x / grounding['normal'].y) < self.shape.friction:
+            #         impulse.y *= JUMP_SPEED
+            #         impulse.y -= space.gravity.y
+            #     else:
+            #         impulse.y = 0
+            #     self.body.apply_impulse_at_local_point(impulse)
+            # else:
+            self.position += to_move * delta_time * SPEED
             # self.position.update(clamp(self.position.x, -24, 24), clamp(self.position.y, -2, 18))
             if not mode_2d:
                 oldpos = Vector2(self.position)
@@ -348,8 +313,7 @@ class Player(PositionBasedSprite):
     
     def die(self):
         self.death_count += 1
-        self.body.velocity = Vector2()
-        self.body.position = GameStartingItem.current_level.data.startpoint
+        self.position = GameStartingItem.current_level.data.startpoint
 
 player = Player()
 # player.position += (16, 12)
@@ -450,25 +414,6 @@ class Tile(PositionBasedSprite):
     def __init__(self, pos, level):
         super().__init__(1)
         self.position.update(pos)
-        verts = [tuple(int(x) for x in vert) for vert in [
-            (pos.x - 0, pos.y + 0),
-            (pos.x + 1, pos.y + 0),
-            (pos.x + 1, pos.y - 1),
-            (pos.x - 0, pos.y - 1),
-        ]]
-        # self.shape = pymunk.Poly(body, verts)
-        self.shape = []
-        radius = 0.1
-        if pos.x > 0 and level._surf[int(pos.x) - 1, int(pos.y)]:
-            self.shape.append(pymunk.Segment(level.body, verts[0], verts[3], radius))
-        if pos.x < level.size[0] - 1 and level._surf[int(pos.x) + 1, int(pos.y)]:
-            self.shape.append(pymunk.Segment(level.body, verts[1], verts[2], radius))
-        if pos.y > 0 and level._surf[int(pos.x), level.size[1] - int(pos.y)]:
-            self.shape.append(pymunk.Segment(level.body, verts[3], verts[2], radius))
-        if pos.y < level.size[1] - 1 and level._surf[int(pos.x), level.size[1] - int(pos.y) - 1]:
-            self.shape.append(pymunk.Segment(level.body, verts[0], verts[1], radius))
-        # self.shape = pymunk.Segment(body, (pos.x + 1, pos.y - .5), (pos.x + 2, pos.y - .5), .5)
-        # self.shape.friction = self.friction
 
 
 class TileTypes(Enum):
@@ -489,7 +434,7 @@ class WallTile(Tile):
 
 
 class LevelData:
-    __slots__ = ['number', '_surf', 'root', 'success', 'meta', 'size', 'tiles', 'bgpath', 'bgrect', 'startpoint', 'endpoint', 'checkpoint', 'body', 'verts', 'shape']
+    __slots__ = ['number', '_surf', 'root', 'success', 'meta', 'size', 'tiles', 'bgpath', 'bgrect', 'startpoint', 'endpoint', 'checkpoint', 'verts', 'shape']
 
     def __init__(self, number):
         self.number = number
@@ -522,7 +467,7 @@ class LevelData:
         self.startpoint = Vector2()
         self.endpoint = Vector2()
         self.checkpoint = 0
-    
+
     def _load_level(self):
         map_path = self._get_file_path('map.png')
         level_map_image = pygame.image.load(map_path)
@@ -604,13 +549,11 @@ class GameStartingItem(PositionBasedSprite):
     def _begin_level(self):
         GameStartingItem.current_level = self
         foreground_sprites.add(*self.data.iter_tiles())
-        space.add(*(x.shape for x in self.data.iter_tiles()))
         # space.add(self.data.shape)
-        player.body.position = self.data.startpoint
+        player.position = self.data.startpoint
 
     def _end_level(self):
         foreground_sprites.remove(*self.data.iter_tiles())
-        space.remove(*(x.shape for x in self.data.iter_tiles()))
         # space.remove(self.data.shape)
 
     @staticmethod
@@ -618,7 +561,6 @@ class GameStartingItem(PositionBasedSprite):
         self = GameStartingItem.current_level
         self._end_level()
         foreground_sprites.add(*self.levels)
-        player.body.velocity = Vector2()
         player.position = Vector2()
 
 level0 = GameStartingItem(0)
@@ -778,7 +720,7 @@ while running:
                     movement.y -= 1
             else:
                 if event.key in (K_SPACE, K_RETURN):
-                    movement.y = 1000
+                    movement.y = 1
         elif event.type == KEYUP:
             if event.key == K_a:
                 movement.x += 1
@@ -812,8 +754,8 @@ while running:
 
     if fixed_fps_passed > fixed_fps_delta:
         fixed_fps_passed = 0
-        if mode_2d:
-            space.step(fixed_fps_delta)
+        # if mode_2d:
+        #     space.step(fixed_fps_delta)
 
     ## Done after drawing everything to the screen
     ui_group.update(mouse_events)
