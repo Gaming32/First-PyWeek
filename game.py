@@ -34,7 +34,8 @@ FIXED_FPS = 50
 SPEED = 3
 CAMERA_SPEED = 1
 PLATFORM_SPEED = 8
-JUMP_SPEED = 100
+JUMP_SPEED = 0.15
+GRAVITY = 0.005
 
 CAMERA_SPEEDS = [
     1,
@@ -166,9 +167,11 @@ class Camera:
     def update(self, player):
         speed = CAMERA_SPEEDS[0]
         distance_to_player = self.position.distance_squared_to(player.position)
+        if distance_to_player < 1:
+            return
         if distance_to_player > 100**2:
             distance_to_player = math.sqrt(distance_to_player)
-            speed *= 10 ** (int(math.log10(distance_to_player)) ** 2)
+            speed *= 10 ** (int(math.log10(distance_to_player)) - 1)
             print('Distance to player:', distance_to_player, '\t', 'Updated camera speed:', speed)
         # if distance_to_player > CAMERA_SPEED_2[0]:
         #     speed *= CAMERA_SPEED_2[1]
@@ -176,8 +179,7 @@ class Camera:
         #     print('Updated camera speed:', speed)
         value = clamp01(speed * delta_time)
         newpos = self.position.lerp(player.position, value)
-        if newpos.distance_squared_to(player.position) > 1:
-            self.position.update(newpos)
+        self.position.update(newpos)
 
 camera = Camera()
 
@@ -260,6 +262,7 @@ class Player(PositionBasedSprite):
         self.death_count = 0
         self.base_image = get_player_animation_frame(self.player_raw_image, 0)
         self.animation_time_passed = 0
+        self.vertical_velocity = 0
 
     def update(self, *args, **kwargs):
         # mouse_pos = pygame.mouse.get_pos()
@@ -271,6 +274,10 @@ class Player(PositionBasedSprite):
                 self.die()
         if movement:
             to_move = movement.normalize()
+            if mode_2d:
+                if to_move.y:
+                    self.vertical_velocity = JUMP_SPEED / to_move.y
+                    to_move.y = 0
             # if mode_2d:
             #     impulse = to_move * delta_time * SPEED * self.body.mass
             #     impulse.x -= self.body.velocity.x
@@ -550,6 +557,7 @@ class GameStartingItem(PositionBasedSprite):
         GameStartingItem.current_level = self
         foreground_sprites.add(*self.data.iter_tiles())
         # space.add(self.data.shape)
+        player.vertical_velocity = 0
         player.position = self.data.startpoint
 
     def _end_level(self):
@@ -754,7 +762,9 @@ while running:
 
     if fixed_fps_passed > fixed_fps_delta:
         fixed_fps_passed = 0
-        # if mode_2d:
+        if mode_2d:
+            player.position.y += player.vertical_velocity
+            player.vertical_velocity -= GRAVITY
         #     space.step(fixed_fps_delta)
 
     ## Done after drawing everything to the screen
