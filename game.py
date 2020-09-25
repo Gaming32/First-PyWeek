@@ -35,16 +35,8 @@ SPEED = 3
 CAMERA_SPEED = 1
 PLATFORM_SPEED = 8
 JUMP_SPEED = 0.15
-GRAVITY = 0.005
-
-CAMERA_SPEEDS = [
-    1,
-    (10**2, 10),
-    (100**2, 100),
-    (1000**2, 1000),
-]
-CAMERA_SPEED_2 = (100**2, 10)
-CAMERA_SPEED_3 = (1000**2, 10)
+MOVING_JUMP_SPEED = 0.2
+GRAVITY = -0.005
 
 PLAYER_SLICE = (26, 36)
 PLAYER_ANIMATION_COUNT = 3
@@ -160,16 +152,22 @@ if not save_game:
     save_game['checkpoints'] = 0
 
 
+def in_range(x, start, stop):
+    return start <= x < stop
+
+
 class Camera:
     def __init__(self):
         self.position = Vector2()
 
     def update(self, player):
-        speed = CAMERA_SPEEDS[0]
+        speed = CAMERA_SPEED
         distance_to_player = self.position.distance_squared_to(player.position)
         if distance_to_player < 1:
             return
-        if distance_to_player > 100**2:
+        if distance_to_player > 25:
+            speed *= 3
+        elif distance_to_player > 100**2:
             distance_to_player = math.sqrt(distance_to_player)
             speed *= 10 ** (int(math.log10(distance_to_player)) - 1)
             print('Distance to player:', distance_to_player, '\t', 'Updated camera speed:', speed)
@@ -263,6 +261,53 @@ class Player(PositionBasedSprite):
         self.base_image = get_player_animation_frame(self.player_raw_image, 0)
         self.animation_time_passed = 0
         self.vertical_velocity = 0
+        self._collisions = [None] * 5
+        self.grounded = False
+
+    def collisions(self):
+        if fixed_fps_passed == 0:
+            self._collisions.clear()
+            level_data = GameStartingItem.current_level.data
+            level_size = level_data.size
+            tiles = level_data.tiles
+            for direction in [
+                (0, 0),
+                (0, 1),
+                (0, -1),
+                (-1, 0),
+                (1, 0)
+            ]:
+                position = (
+                    round(self.position.x + direction[0]),
+                    level_size[1] - round(self.position.y + direction[1])
+                )
+                if in_range(position[0], 0, level_size[0]) \
+                    and in_range(position[1], 0, level_size[1]):
+                    tile = tiles[position[0]][position[1]]
+                    if tile is not None and tile.collidable:
+                        self._collisions.append(tile)
+                    else:
+                        self._collisions.append(None)
+                else:
+                    self._collisions.append(None)
+        return self._collisions
+
+    def is_colliding(self, side):
+        collisions = self.collisions()
+        collision = collisions[side]
+        return collision is not None and self.rect.colliderect(collision.rect)
+
+    def physics_update(self):
+        collisions = self.collisions()
+        self.grounded = self.is_colliding(2)
+        if not self.grounded:
+            self.vertical_velocity += GRAVITY
+        if self.grounded:
+            self.vertical_velocity = max(0, self.vertical_velocity)
+        if self.is_colliding(1):
+            self.vertical_velocity = min(0, self.vertical_velocity)
+        self.position.y += self.vertical_velocity
+        # self.vertical_velocity += GRAVITY
 
     def update(self, *args, **kwargs):
         # mouse_pos = pygame.mouse.get_pos()
@@ -276,7 +321,8 @@ class Player(PositionBasedSprite):
             to_move = movement.normalize()
             if mode_2d:
                 if to_move.y:
-                    self.vertical_velocity = JUMP_SPEED / to_move.y
+                    if self.grounded:
+                        self.vertical_velocity = MOVING_JUMP_SPEED if to_move.x else JUMP_SPEED
                     to_move.y = 0
             # if mode_2d:
             #     impulse = to_move * delta_time * SPEED * self.body.mass
@@ -291,7 +337,12 @@ class Player(PositionBasedSprite):
             #         impulse.y = 0
             #     self.body.apply_impulse_at_local_point(impulse)
             # else:
-            self.position += to_move * delta_time * SPEED
+            if not self.is_colliding(0):
+                if self.is_colliding(3):
+                    to_move.x = max(0, to_move.x)
+                if self.is_colliding(4):
+                    to_move.x = min(0, to_move.x)
+                self.position += to_move * delta_time * SPEED
             # self.position.update(clamp(self.position.x, -24, 24), clamp(self.position.y, -2, 18))
             if not mode_2d:
                 oldpos = Vector2(self.position)
@@ -300,7 +351,7 @@ class Player(PositionBasedSprite):
                 if abs(self.position.x - oldpos.x) > 12:
                     camera_offset = oldpos - camera.position
                     camera.position.update(self.position - camera_offset)
-            general_direction = (math.degrees(math.atan2(movement.y, movement.x)) + 45) // 45
+            general_direction = (math.degrees(math.atan2(to_move.y, to_move.x)) + 45) // 45
             if not mode_2d:
                 if general_direction == -1:
                     animation_direction = 0
@@ -320,7 +371,8 @@ class Player(PositionBasedSprite):
     
     def die(self):
         self.death_count += 1
-        self.position = GameStartingItem.current_level.data.startpoint
+        self.position.update(GameStartingItem.current_level.data.startpoint)
+        self.vertical_velocity = 0
 
 player = Player()
 # player.position += (16, 12)
@@ -411,6 +463,7 @@ level_font = pygame.font.SysFont('calibri', 20)
 class Tile(PositionBasedSprite):
     base_image: Union[str, Surface]
     friction: float
+    collidable: bool = True
 
     def __new__(cls, *args):
         self = PositionBasedSprite.__new__(cls)
@@ -558,7 +611,7 @@ class GameStartingItem(PositionBasedSprite):
         foreground_sprites.add(*self.data.iter_tiles())
         # space.add(self.data.shape)
         player.vertical_velocity = 0
-        player.position = self.data.startpoint
+        player.position.update(self.data.startpoint)
 
     def _end_level(self):
         foreground_sprites.remove(*self.data.iter_tiles())
@@ -763,8 +816,7 @@ while running:
     if fixed_fps_passed > fixed_fps_delta:
         fixed_fps_passed = 0
         if mode_2d:
-            player.position.y += player.vertical_velocity
-            player.vertical_velocity -= GRAVITY
+            player.physics_update()
         #     space.step(fixed_fps_delta)
 
     ## Done after drawing everything to the screen
