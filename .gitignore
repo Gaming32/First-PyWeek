@@ -6,5 +6,5 @@ build
 *.pyd
 .vscode
 save.json
-Marooned! v1.0-final.zip
+Marooned!*.zip
 screenshots
