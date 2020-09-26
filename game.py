@@ -169,7 +169,9 @@ class Camera:
         distance_to_player = self.position.distance_squared_to(player.position)
         if distance_to_player < 1:
             return
-        if distance_to_player > 25:
+        if distance_to_player > 49:
+            speed *= 10
+        elif distance_to_player > 25:
             speed *= 3
         elif distance_to_player > 100**2:
             distance_to_player = math.sqrt(distance_to_player)
@@ -545,6 +547,7 @@ class Tile(PositionBasedSprite):
 class TileTypes(Enum):
     Air = 0xffffff
     Pink = 0x8080ff
+    Water = 0xffd47f
 
     Spawn = 0x7fff7f
     CheckpointRespawn = 0x3fff3f
@@ -580,9 +583,10 @@ class PinkTile(Tile):
     collidable = False
 
 
-class BreakableTile(Tile):
-    base_image = 'assets/cracked.png'
-    collidable = True
+class WaterTile(Tile):
+    base_image = pygame.image.load('assets/water.png').convert()
+    base_image.set_alpha(96)
+    collidable = False
 
 
 class EnemyPlaceholder:
@@ -652,6 +656,8 @@ class LevelData:
                     pass
                 elif pixel == TileTypes.Pink.value:
                     tile = PinkTile(position, self)
+                elif pixel == TileTypes.Water.value:
+                    tile = WaterTile(position, self)
                 # Control
                 elif pixel == TileTypes.Spawn.value:
                     self.startpoint = position
