@@ -786,6 +786,7 @@ class GameStartingItem(PositionBasedSprite):
             save_game['levels'] |= self.save_bit
             if self.data.final_level:
                 save_game['game_beat'] = True
+                death_counter.rect, death_counter.content = create_death_counter()
         for level in self.levels:
             level._create_base_image()
         foreground_sprites.add(*self.levels)
