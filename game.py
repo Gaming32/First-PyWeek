@@ -338,7 +338,7 @@ class Player(PhysicsEnabledSprite):
         # mouse_direction = -mouse_rel.as_polar()[1] - 90
         # self.rotation = mouse_direction
         if mode_2d:
-            if self.position.y < 0:
+            if self.position.y < 0.5:
                 self.die()
         if movement:
             to_move = movement.normalize()
@@ -379,7 +379,8 @@ class Player(PhysicsEnabledSprite):
             self.base_image = get_player_animation_frame(self.player_raw_image,
                                                          animation_direction)
         if mode_2d:
-            if int(self.position.x) == GameStartingItem.current_level.data.checkpoint.x:
+            ckpt_position = Vector2(*(int(item) for item in self.position))
+            if ckpt_position in GameStartingItem.current_level.data.checkpoint_positions:
                 save_game['checkpoints'] |= GameStartingItem.current_level.save_bit
             if self.position.distance_squared_to(GameStartingItem.current_level.data.endpoint) <= 1:
                 GameStartingItem.current_level.exit_level(True)
@@ -434,7 +435,7 @@ class Enemy(PhysicsEnabledSprite):
         self.position.x += self.movement_direction * fixed_fps_delta
         if self.rect.colliderect(player.rect):
             player.die()
-        if self.position.y < 0:
+        if self.position.y < 0.5:
             self.reset()
 
     def create_enemy(self):
@@ -541,9 +542,11 @@ class Tile(PositionBasedSprite):
 
 class TileTypes(Enum):
     Air = 0xffffff
+    Pink = 0x8080ff
 
     Spawn = 0x7fff7f
-    Checkpoint = 0x3fff3f
+    CheckpointRespawn = 0x3fff3f
+    Checkpoint = 0x2fbf2f
     Goal = 0x00ff00
 
     Wall = 0x006080
@@ -569,17 +572,23 @@ class GoalTile(Tile):
     collidable = False
 
 
+class PinkTile(Tile):
+    base_image = Surface((16, 16)).convert_alpha()
+    base_image.fill((255, 128, 128, 106))
+    collidable = False
+
+
 class EnemyPlaceholder:
     def __init__(self, position, direction):
         self.position = position
         self.direction = direction
-    
+
     def create_enemy(self) -> Enemy:
         return Enemy(self.position, self.direction)
 
 
 class LevelData:
-    __slots__ = ['enemies', 'number', '_surf', 'root', 'success', 'meta', 'size', 'tiles', 'bgpath', 'bgrect', 'startpoint', 'endpoint', 'checkpoint', 'verts', 'shape']
+    __slots__ = ['checkpoint_positions', 'enemies', 'number', '_surf', 'root', 'success', 'meta', 'size', 'tiles', 'bgpath', 'bgrect', 'startpoint', 'endpoint', 'checkpoint', 'verts', 'shape']
 
     def __init__(self, number):
         self.number = number
@@ -613,6 +622,7 @@ class LevelData:
         self.endpoint = Vector2()
         self.checkpoint = Vector2()
         self.enemies = []
+        self.checkpoint_positions = []
 
     def _load_level(self):
         map_path = self._get_file_path('map.png')
@@ -631,11 +641,16 @@ class LevelData:
                 # Air
                 if pixel == TileTypes.Air.value:
                     pass
+                elif pixel == TileTypes.Pink.value:
+                    tile = PinkTile(position, self)
                 # Control
                 elif pixel == TileTypes.Spawn.value:
                     self.startpoint = position
-                elif pixel == TileTypes.Checkpoint.value:
+                elif pixel == TileTypes.CheckpointRespawn.value:
                     self.checkpoint = position
+                    self.checkpoint_positions.append(Vector2(position))
+                elif pixel == TileTypes.Checkpoint.value:
+                    self.checkpoint_positions.append(Vector2(position))
                 elif pixel == TileTypes.Goal.value:
                     tile = GoalTile(position, self)
                     self.endpoint = position

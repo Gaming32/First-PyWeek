@@ -6,8 +6,11 @@
 ; A palette must consist of ninety six (96) colors. If there are less than this, the remaining color
 ; slots will be set to white (FFFFFFFF). If there are more, then the remaining colors will be ignored.
 FFFFFFFF ; Air
+FFFF8080 ; Pink tile
+FFFFFFFF
 FF7FFF7F ; Starting point
-FF3FFF3F ; Checkpoint
+FF3FFF3F ; Checkpoint respawn
+FF2FBF2F ; Checkpoint
 FF00FF00 ; Ending point
 FFFFFFFF
 FF008000 ; Sand
