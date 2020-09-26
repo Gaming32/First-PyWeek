@@ -153,6 +153,7 @@ if not save_game:
     save_game['levels'] = 0
     save_game['checkpoints'] = 0
     save_game['death_count'] = 0
+    save_game['game_beat'] = False
     save_game.flush()
 
 
@@ -599,7 +600,7 @@ class EnemyPlaceholder:
 
 
 class LevelData:
-    __slots__ = ['song_path', 'checkpoint_positions', 'enemies', 'number', '_surf', 'root', 'success', 'meta', 'size', 'tiles', 'bgpath', 'bgrect', 'startpoint', 'endpoint', 'checkpoint', 'verts', 'shape']
+    __slots__ = ['final_level', 'song_path', 'checkpoint_positions', 'enemies', 'number', '_surf', 'root', 'success', 'meta', 'size', 'tiles', 'bgpath', 'bgrect', 'startpoint', 'endpoint', 'checkpoint', 'verts', 'shape']
 
     def __init__(self, number):
         self.number = number
@@ -611,6 +612,7 @@ class LevelData:
         else:
             with open(self._get_file_path('level.json')) as fp:
                 self.meta = json.load(fp)
+            self.final_level = 'final_level' in self.meta and self.meta['final_level']
             self._load_level()
             # self.background = pygame.image.load(self._get_file_path('background.jpg'))
             self.bgpath = self._get_file_path('background.png')
@@ -636,6 +638,7 @@ class LevelData:
         self.checkpoint = Vector2()
         self.enemies = []
         self.checkpoint_positions = []
+        self.final_level = False
 
     def _load_level(self):
         map_path = self._get_file_path('map.png')
@@ -781,6 +784,8 @@ class GameStartingItem(PositionBasedSprite):
         Enemy.remove_enemies()
         if because_beat:
             save_game['levels'] |= self.save_bit
+            if self.data.final_level:
+                save_game['game_beat'] = True
         for level in self.levels:
             level._create_base_image()
         foreground_sprites.add(*self.levels)
@@ -919,6 +924,8 @@ death_font = pygame.font.SysFont('calibri', 100)
 
 def create_death_counter(newrect=Rect(20, 20, 1000, 100)):
     value = f"Deaths: {save_game['death_count']}"
+    if save_game['game_beat']:
+        value += '        You beat the game!'
     rendered_font = death_font.render(value, True, WHITE)
     rect = rendered_font.get_rect().fit(newrect)
     return rect, rendered_font
