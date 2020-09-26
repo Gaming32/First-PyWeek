@@ -1,6 +1,6 @@
 # Marooned!
 
-In Marooned! you get thrown onto an island by you're fellow sea-farers, who have had enough of you. Meet the hostile coconut people and meet the spirit they worship in Marooned!
+In Marooned! you get thrown onto an island by your fellow sea-farers, who have had enough of you. Meet the hostile coconut people and meet the spirit they worship in Marooned!
 
 ## Controls
 
