@@ -384,7 +384,7 @@ class Player(PhysicsEnabledSprite):
                 save_game['checkpoints'] |= GameStartingItem.current_level.save_bit
             if self.position.distance_squared_to(GameStartingItem.current_level.data.endpoint) <= 1:
                 GameStartingItem.current_level.exit_level(True)
-    
+
     def die(self):
         save_game['death_count'] += 1
         self.position.update(GameStartingItem.current_level.get_spawn())
@@ -920,6 +920,7 @@ MOUSE_EVENT_TYPES = [MOUSEBUTTONDOWN, MOUSEBUTTONUP, MOUSEMOTION, MOUSEWHEEL]
 mouse_events = []
 
 pressed_keys = set()
+skip_physics = 0
 
 while running:
 
@@ -929,6 +930,10 @@ while running:
     else:
         thisfps = 1000
     smoothfps = (smoothfps * fps_smoothing) + (thisfps * (1 - fps_smoothing))
+    if delta_time > fixed_fps_delta and skip_physics == 0:
+        skip_physics = 1
+    elif skip_physics == 2:
+        skip_physics = 0
     # if delta_time > 0:
     #     print('FPS:', 1/delta_time, ' '*24, end='\r')
     # else:
@@ -991,7 +996,9 @@ while running:
         background.draw(screen)
     foreground_sprites.draw(screen)
 
-    if fixed_fps_passed > fixed_fps_delta:
+    if skip_physics == 1:
+        skip_physics = 2
+    elif fixed_fps_passed > fixed_fps_delta:
         fixed_fps_passed = 0
         if mode_2d:
             PhysicsEnabledSprite.global_physics_update()
