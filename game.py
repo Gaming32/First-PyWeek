@@ -580,6 +580,11 @@ class PinkTile(Tile):
     collidable = False
 
 
+class BreakableTile(Tile):
+    base_image = 'assets/cracked.png'
+    collidable = True
+
+
 class EnemyPlaceholder:
     def __init__(self, position, direction):
         self.position = position
@@ -918,12 +923,14 @@ death_counter = UIImage(*reversed(create_death_counter()))
 def switch_music(song_path, fadeout_time=1):
     def start_song(pause_time):
         time.sleep(pause_time)
+        if not pygame.get_init():
+            return
         pygame.mixer.music.load(song_path)
         pygame.mixer.music.play(-1)
 
     if pygame.mixer.music.get_busy():
         pygame.mixer.music.fadeout(fadeout_time)
-        threading.Thread(target=start_song, args=[fadeout_time], daemon=True).start()
+        threading.Thread(target=start_song, args=[fadeout_time], daemon=False).start()
     else:
         start_song(0)
 
