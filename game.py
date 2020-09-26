@@ -180,6 +180,10 @@ class Camera:
         value = clamp01(speed * delta_time)
         newpos = self.position.lerp(player.position, value)
         self.position.update(newpos)
+        if mode_2d:
+            self.position.x = clamp(self.position.x, 6.5, GameStartingItem.current_level.data.size[0] - 6.5)
+            self.position.y = clamp(self.position.y, 5, GameStartingItem.current_level.data.size[1] - 6)
+            # print(self.position)
 
 camera = Camera()
 
@@ -402,17 +406,26 @@ class Enemy(PhysicsEnabledSprite):
 
     def __init__(self, position, direction):
         self.original_position = position
+        self.original_movement_direction = direction
         super().__init__(1)
         self.movement_direction = direction
         self.deactivate()
+        
+    def reset(self):
+        self.position = Vector2(self.original_position)
+        self.movement_direction = self.original_movement_direction
 
     def activate(self):
         super().activate()
         foreground_sprites.add(self)
-        self.position = Vector2(self.original_position)
+        self.reset()
 
     def physics_update(self):
         super().physics_update()
+        if not Rect((0, 0), size).colliderect(self.rect):
+            self.position.y -= self.vertical_velocity
+            self.vertical_velocity = 0
+            return
         collide_direction = 3 + (self.movement_direction > 0)
         if self.is_colliding(collide_direction):
             self.movement_direction *= -1
@@ -421,6 +434,11 @@ class Enemy(PhysicsEnabledSprite):
         self.position.x += self.movement_direction * fixed_fps_delta
         if self.rect.colliderect(player.rect):
             player.die()
+        if self.position.y < 0:
+            self.reset()
+
+    def create_enemy(self):
+        return self
 
 
 map_point = (-40, 32)
@@ -705,9 +723,9 @@ class GameStartingItem(PositionBasedSprite):
             mode_2d = True
             movement.update(0, 0)
             foreground_sprites.remove(*self.levels)
-            enemies = [enemy.create_enemy() for enemy in self.data.enemies]
-            Enemy.enemies.extend(enemies)
-            for enemy in enemies:
+            self.data.enemies[:] = (enemy.create_enemy() for enemy in self.data.enemies)
+            Enemy.enemies.extend(self.data.enemies)
+            for enemy in Enemy.enemies:
                 enemy.activate()
             self._begin_level()
 
@@ -728,6 +746,7 @@ class GameStartingItem(PositionBasedSprite):
         mode_2d = False
         self = GameStartingItem.current_level
         self._end_level()
+        Enemy.remove_enemies()
         if because_beat:
             save_game['levels'] |= self.save_bit
         for level in self.levels:
