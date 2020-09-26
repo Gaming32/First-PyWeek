@@ -996,14 +996,14 @@ while running:
         background.draw(screen)
     foreground_sprites.draw(screen)
 
-    if skip_physics == 1:
-        skip_physics = 2
-    elif fixed_fps_passed > fixed_fps_delta:
+    while fixed_fps_passed > fixed_fps_delta:
         fixed_fps_passed = 0
         if mode_2d:
             PhysicsEnabledSprite.global_physics_update()
             # player.physics_update()
         #     space.step(fixed_fps_delta)
+        fixed_fps_passed -= fixed_fps_delta
+    fixed_fps_passed = 0
 
     ## Done after drawing everything to the screen
     ui_group.update(mouse_events)
