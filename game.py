@@ -7,10 +7,12 @@ import pickle
 import random
 from enum import Enum
 from sys import stdout
-from typing import Callable, Set, Union
+import threading
+import time
+from typing import Callable, Union
 
 import pygame
-from pygame import Surface, time
+from pygame import Surface
 from pygame.display import Info
 from pygame.event import Event
 from pygame.locals import *
@@ -588,7 +590,7 @@ class EnemyPlaceholder:
 
 
 class LevelData:
-    __slots__ = ['checkpoint_positions', 'enemies', 'number', '_surf', 'root', 'success', 'meta', 'size', 'tiles', 'bgpath', 'bgrect', 'startpoint', 'endpoint', 'checkpoint', 'verts', 'shape']
+    __slots__ = ['song_path', 'checkpoint_positions', 'enemies', 'number', '_surf', 'root', 'success', 'meta', 'size', 'tiles', 'bgpath', 'bgrect', 'startpoint', 'endpoint', 'checkpoint', 'verts', 'shape']
 
     def __init__(self, number):
         self.number = number
@@ -607,6 +609,7 @@ class LevelData:
             if 'rect' in bgmeta:
                 for (key, value) in bgmeta['rect'].items():
                     setattr(self.bgrect, key, value)
+            self.song_path = self._get_file_path('music.wav')
             self.success = True
 
     def _get_file_path(self, file):
@@ -618,6 +621,7 @@ class LevelData:
         self.tiles = []
         self.bgpath = ''
         self.bgrect = Rect(0, 0, 0, 0)
+        self.song_path = ''
         self.startpoint = Vector2()
         self.endpoint = Vector2()
         self.checkpoint = Vector2()
@@ -750,9 +754,11 @@ class GameStartingItem(PositionBasedSprite):
         # space.add(self.data.shape)
         player.vertical_velocity = 0
         player.position.update(self.get_spawn())
+        switch_music(self.data.song_path)
 
     def _end_level(self):
         foreground_sprites.remove(*self.data.iter_tiles())
+        play_map_music()
         # space.remove(self.data.shape)
 
     @staticmethod
@@ -909,6 +915,27 @@ def create_death_counter(newrect=Rect(20, 20, 1000, 100)):
 death_counter = UIImage(*reversed(create_death_counter()))
 
 
+def switch_music(song_path, fadeout_time=1):
+    def start_song(pause_time):
+        time.sleep(pause_time)
+        pygame.mixer.music.load(song_path)
+        pygame.mixer.music.play(-1)
+
+    if pygame.mixer.music.get_busy():
+        pygame.mixer.music.fadeout(fadeout_time)
+        threading.Thread(target=start_song, args=[fadeout_time], daemon=True).start()
+    else:
+        start_song(0)
+
+
+def play_map_music():
+    if not save_game['levels']:
+        song_path = 'assets/map0.wav'
+    else:
+        song_path = 'assets/map1.wav'
+    switch_music(song_path)
+
+
 movement = Vector2()
 ## Game loop
 running = True
@@ -921,6 +948,8 @@ mouse_events = []
 
 pressed_keys = set()
 skip_physics = 0
+
+play_map_music()
 
 while running:
 
@@ -1000,10 +1029,6 @@ while running:
         fixed_fps_passed = 0
         if mode_2d:
             PhysicsEnabledSprite.global_physics_update()
-            # player.physics_update()
-        #     space.step(fixed_fps_delta)
-        fixed_fps_passed -= fixed_fps_delta
-    fixed_fps_passed = 0
 
     ## Done after drawing everything to the screen
     ui_group.update(mouse_events)
