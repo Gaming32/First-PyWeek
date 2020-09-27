@@ -55,7 +55,12 @@ mode_2d = False
 
 ## initialize pygame and create window
 pygame.init()
-pygame.mixer.init()  ## For sound
+try:
+    pygame.mixer.init()  ## For sound
+except pygame.error:
+    use_sound = False
+else:
+    use_sound = True
 info = Info()
 size = size_from_ratio(info.current_w, info.current_h, RATIO)
 screen = pygame.display.set_mode(size, FULLSCREEN)
@@ -935,6 +940,9 @@ death_counter = UIImage(*reversed(create_death_counter()))
 
 
 def switch_music(song_path, fadeout_time=1):
+    if not use_sound:
+        return
+
     def start_song(pause_time):
         time.sleep(pause_time)
         if not pygame.get_init():
