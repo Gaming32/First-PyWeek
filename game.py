@@ -55,7 +55,7 @@ mode_2d = False
 
 ## initialize pygame and create window
 pygame.init()
-# pygame.mixer.init()  ## For sound
+pygame.mixer.init()  ## For sound
 info = Info()
 size = size_from_ratio(info.current_w, info.current_h, RATIO)
 screen = pygame.display.set_mode(size, FULLSCREEN)
